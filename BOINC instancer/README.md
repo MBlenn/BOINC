@@ -19,5 +19,10 @@ Internally Bash's getopts parses the options and invokes the required routines. 
 
 A host just needs the script itself and an archive containing client and account configuration files.
 
+
+
 #### Limitations
 - starts BOINC instances under root for now (*to be fixed*)
+
+[...]
+More documentation to come during next days!
