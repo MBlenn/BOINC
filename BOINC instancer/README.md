@@ -9,6 +9,7 @@ Lets start with the help to get an overview:
 -n - new BOINC instance
 -d - delete instance picked from list
 -r - refresh all config files
+-e - enable minimal local environment, no config files
 -E $ARG - enable local environment, load config from file/URL
 -S $ARG - start specified instance
 -T $ARG - stop/terminate specified instance
