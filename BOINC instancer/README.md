@@ -51,4 +51,4 @@ For all instances the total number of configured CPUs (NCPU), the buffer setting
 - won't control default BOINC instance, maybe implement start/stop through system commands
 
 [...]
-More documentation to come during next days!
+Work in progress!
