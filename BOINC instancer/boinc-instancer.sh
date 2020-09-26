@@ -18,6 +18,7 @@ help() {
 	echo "-n - new BOINC instance"
 	echo "-d - delete instance picked from list"
 	echo "-r - refresh all config files"
+	echo "-e - enable minimal local environment, no config files" 
 	echo "-E \$ARG - enable local environment, load config from file/URL" 
 	echo "-S \$ARG - start specified instance"
 	echo "-T \$ARG - stop/terminate specified instance"
@@ -36,15 +37,13 @@ f_new_boinc_port() {
 
 f_new_remote_hosts() {
 	NETWORK_BASE=$(ip route show | sed 's/ /./g' | awk -F"." '/default/ { print $3"."$4"."$5 }')
-	if [[ ! $NETWORK_BASE == "192.168.2" ]]; then 
-		cat /dev/null > ${CONFIG_REPOSITORY}/remote_hosts.cfg
-		NUM=1;
-		END=255; 
-		while [[ $NUM -lt $END ]]; do 
-			echo $NETWORK_BASE.$NUM >> ${CONFIG_REPOSITORY}/remote_hosts.cfg
-			NUM=$((NUM+1)); 
-		done
-	fi
+	cat /dev/null > ${CONFIG_REPOSITORY}/remote_hosts.cfg
+	NUM=1;
+	END=255; 
+	while [[ $NUM -lt $END ]]; do 
+		echo $NETWORK_BASE.$NUM >> ${CONFIG_REPOSITORY}/remote_hosts.cfg
+		NUM=$((NUM+1)); 
+	done
 }
 
 f_download_config() {
@@ -63,6 +62,11 @@ f_download_config() {
 }
 
 start_boinc() {
+        if [[ $1 == "boinc_31416" || $1 == "31416" ]]; then
+                echo "Refusing to start the default instance, use proper OS commands"
+                exit 2
+        fi
+
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
 
@@ -85,6 +89,11 @@ start_boinc() {
 }
 
 f_stop_boinc() {
+        if [[ $1 == "boinc_31416" || $1 == "31416" ]]; then
+                echo "Refusing to stop the default instance, use proper OS commands"
+                exit 7
+        fi
+
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
 	CDIR=$(pwd)
@@ -263,6 +272,9 @@ create_new_boinc_instance () {
 }
 
 setup_environment() {
+	# 
+	# instancer config should be in $1 when invoked via -E 
+	# 
 	IC_URL=$1
 	echo "(Re)creating all needed directories..."
 	mkdir -p ${INSTALL_ROOT} && echo "	Created ${INSTALL_ROOT}"
@@ -271,23 +283,32 @@ setup_environment() {
 	mkdir -p ${INSTANCE_HOME} && echo "	Created ${INSTANCE_HOME}"
 	ln -f -s /var/lib/boinc-client/ /opt/boinc/instance_homes/boinc_31416 &&  echo "	Created link to default BOINC 31416"
 
+	echo
+
+
 	cd ${CONFIG_REPOSITORY}
-	IC_FILE=$(basename ${IC_URL})
+	if [[ ! -z ${IC_URL} ]]; then
+		IC_FILE=$(basename ${IC_URL})
 
-	#
-	# f_download_config downloads the config via wget or copies it from a local/NFS path
-	#
-	f_download_config ${IC_URL}
+		#
+		# f_download_config downloads the config via wget or copies it from a local/NFS path
+		#
+		f_download_config ${IC_URL}
 
-	tar --skip-old-files -xvf instancer_config.tar
+		tar --skip-old-files -xvf instancer_config.tar
 
-        # create remote_hosts.cfg based on gateway in default route
-        echo "Creating new remote_hosts.cfg based on local network config"
-        f_new_remote_hosts
+		echo "Copy (additional) account config files to ${CONFIG_REPOSITORY}/boinc_accounts"
+	else
+	        # create remote_hosts.cfg based on gateway in default route
+		printf "Creating new remote_hosts.cfg based on local network config - "
+        	f_new_remote_hosts  && echo "OK"
+		echo
+
+		echo "Copy your gui_rpc_auth.cfg, cc_config.xml and global_prefs_override.xml to ${CONFIG_REPOSITORY}"
+		echo "Copy account config files to ${CONFIG_REPOSITORY}/boinc_accounts"
+	fi
 
 	echo
-	echo "Copy your gui_rpc_auth.cfg, remote_hosts.cfg, cc_config.xml & app_config.xml to ${CONFIG_REPOSITORY}"
-	echo "Copy additional account config files to ${CONFIG_REPOSITORY}/boinc_accounts"
 }
 
 delete_instance() {
@@ -325,12 +346,12 @@ choose_delete_instance() {
         delete_instance ${REPLY}
 }
 
-kill_instance() {
-        echo "delete instance"
-        ${FILENAME} -l
-        read REPLY
-        kill ${REPLY}
-}
+#kill_instance() {
+#        echo "delete instance"
+#        ${FILENAME} -l
+#        read REPLY
+#        kill ${REPLY}
+#}
 refresh_config() {
         for INSTANCE_DIR in $(ls -1 ${INSTANCE_HOME} | egrep "boinc_[10000-65000]"); do
                 INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }');
@@ -373,6 +394,7 @@ do
 	n) create_new_boinc_instance;;
 	d) choose_delete_instance;;
 	r) refresh_config;;
+	e) setup_environment;;
 	E) setup_environment $OPTARG;;
 	S) start_boinc $OPTARG;;
 	T) f_stop_boinc $OPTARG;;
