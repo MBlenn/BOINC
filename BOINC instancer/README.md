@@ -10,7 +10,7 @@ Lets start with the help to get an overview:
 -d - delete instance picked from list
 -r - refresh all config files
 -e - enable minimal local environment, no config files
--E $ARG - enable local environment, load config from file/URL
+-E $ARG - enable local environment, load config from .tar file/URL
 -S $ARG - start specified instance
 -T $ARG - stop/terminate specified instance
 -D $ARG - delete specified instance (detach projects, remove instance)
