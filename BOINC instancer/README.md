@@ -1,4 +1,5 @@
 # BOINC instancer
+### Introduction
 
 The BOINC instancer assists in managing parallel BOINC instances on the same host.  
 It creates and removes instances, simplifies their start/stop and provides an overview about the number of projects & WUs per instance.
@@ -20,7 +21,7 @@ Internally Bash's getopts parses the options and invokes the required routines. 
 
 A host just needs the script itself and an archive containing client and account configuration files. BOINC must be installed, so that *boinc* and *boinccmd* are available via %PATH. Beyond that, there is no interaction with the default BOINC installation. 
 
-#### Example
+### Instance overview
 
 Lets have a look at several instance states:
 
@@ -47,7 +48,7 @@ boinc_29315 has already gone through 412 WUs, but their upload is pending since 
 boinc_31416 is the default BOINC installation in /var/lib/boinc-client. This instance is currently crunching along on a huge stack of 1918 WUs in cache, from which 23 are in progress and 2 are ready to report (RTR). It can be displayed, but start/stop/delete won't work on this instance.  
 For all instances the total number of configured CPUs (NCPU), the buffer settings as well as the active CPU percentage is displayed. Each line closes with a tailored boincmg command that opens a BOINC Manager window for this specific instance. This command should be issued from the user that runs the desktop.
 
-#### Environment setup
+### Environment setup
 The BOINC instancer can set up the environment from a config file in .tar format (-E), or just create the basic directory structure (-e). The later has then to be filled by the user.
 
 ```
@@ -87,7 +88,7 @@ Copy (additional) account config files to /opt/boinc/config_repo/boinc_accounts
 ```
 In the above example, the instancer first creates the basic directory structure, then downloads the configuration from http://remotehttphost.com/instancer_config_cluster.tar. A local .tar file could also be used instead. The archive is extracted, but existing files are not overwritten. Here an account configuratipon file for World Community Grid is included. Since the archive didn't exclude a remote_hosts.cfg, a new one is created allowing all hosts of the local network (computed from the default gateway). Additional account config files can be placed in the specified path, to be used by future instance creations.
 
-#### Instance creation
+### Instance creation
 ```
 root@hostname:~# /usr/local/bin/boinc-instancer.sh -n
 Copy account config file account_www.worldcommunitygrid.org.xml? [Y/n]
@@ -104,9 +105,9 @@ Load average: 4.08/4.02/4.01                                           30   0   
 
 When creating a new instance, the instancer picks a free port (here 13239), which also becomes part of the directory structure. Per each account config file found, it queries the user whether this account should be enabled on the new instance. That way multiple account files could be stored, but only one or few used depending on the current need. The new BOINC instance is then started and suspended (this default may change though). One can now connect to the instance, check and unsuspend it.
 
-#### Limitations
+### Limitations
 - starts BOINC instances under root for now (*to be fixed*)
 - won't control default BOINC instance, maybe implement start/stop through system commands
 
 [...]
-Work in progress!
+**Work in progress!**
