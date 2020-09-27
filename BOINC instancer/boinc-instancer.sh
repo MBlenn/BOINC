@@ -243,16 +243,18 @@ create_new_boinc_instance () {
 	cp -pr ${CONFIG_REPOSITORY}/gui_rpc_auth.cfg ${INSTANCE_DIR}
 	cp -pr ${CONFIG_REPOSITORY}/remote_hosts.cfg ${INSTANCE_DIR}
 	cp -pr ${CONFIG_REPOSITORY}/cc_config.xml ${INSTANCE_DIR}
-	cp -pr ${CONFIG_REPOSITORY}/global_prefs_override.xm ${INSTANCE_DIR}
+	cp -pr ${CONFIG_REPOSITORY}/global_prefs_override.xml ${INSTANCE_DIR}
 	chmod +r ${INSTANCE_DIR}/gui_rpc_auth.cfg
 
 	for PROJECT in $(ls ${CONFIG_REPOSITORY}/boinc_accounts/account*xml); do 
 		AC_FILE=$(basename ${PROJECT})
-		echo "Copy account config file ${AC_FILE}? [Y/n]";
+		printf "Copy account config file ${AC_FILE}? [Y/n] ";
 		read;
 		if [[ ${REPLY} == "" || ${REPLY} == "Y"  || ${REPLY} == "y" ]]; then
-			echo "Enabling ${AC_FILE}"
+			echo "Enabled"
 			cp -pr ${PROJECT} ${INSTANCE_DIR}
+		else
+			echo "Skipped"
 		fi
 	done
 	
@@ -297,6 +299,14 @@ setup_environment() {
 
 		tar --skip-old-files -xvf instancer_config.tar
 
+		if [[ ! -e remote_hosts.cfg ]]; then
+			#
+			# Archive didn't contain remote_hosts.cfg, creating a new one based on gateway in default route
+			# 
+                	printf "Creating new remote_hosts.cfg based on local network config - "
+                	f_new_remote_hosts  && echo "OK"
+                	echo
+		fi
 		echo "Copy (additional) account config files to ${CONFIG_REPOSITORY}/boinc_accounts"
 	else
 	        # create remote_hosts.cfg based on gateway in default route
