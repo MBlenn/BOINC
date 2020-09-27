@@ -44,7 +44,7 @@ SUSP = suspended
 Besides the default instance (boinc_31416) there are several additional instances. 
 On the first two instances, CPU computing is suspended, these have plenty WUs in cache ready to crunch.
 boinc_29315 has already gone through 412 WUs, but their upload is pending since this clients network access is SUSPended.
-boinc_29315 is the default BOINC installation in /var/lib/boinc-client. This instance is currently crunching along on a huge stack of 1918 WUs in cache, from which 23 are in progress and 2 are ready to report (RTR). It can be displayed, but start/stop/delete won't work on this instance.
+boinc_31416 is the default BOINC installation in /var/lib/boinc-client. This instance is currently crunching along on a huge stack of 1918 WUs in cache, from which 23 are in progress and 2 are ready to report (RTR). It can be displayed, but start/stop/delete won't work on this instance.
 For all instances the total number of configured CPUs (NCPU), the buffer settings as well as the active CPU percentage is displayed. Each line closes with a tailored boincmg command that opens a BOINC Manager window for this specific instance. This command should be issued from the user that runs the desktop.
 
 #### Limitations
