@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# v0.1 25.09.2020
+# v20200929
 #
 
 INSTALL_ROOT=/opt/boinc
