@@ -7,7 +7,6 @@ INSTALL_ROOT=/opt/boinc
 INSTANCE_HOME=${INSTALL_ROOT}/instance_homes
 CONFIG_REPOSITORY=${INSTALL_ROOT}/config_repo
 BOINC_PORT_RANGE="10000-65535"
-IC_URL="http://kerbodyne.com/instancer_config.tar"
 PARENT_COMMAND=$(ps -o comm= $PPID)
 FILENAME=$0
 
@@ -19,6 +18,7 @@ help() {
 	echo "-d - delete instance picked from list"
 	echo "-r - refresh all config files"
 	echo "-e - enable minimal local environment, no config files" 
+	echo "-s - start all BOINC instances"
 	echo "-E \$ARG - enable local environment, load config from file/URL" 
 	echo "-S \$ARG - start specified instance"
 	echo "-T \$ARG - stop/terminate specified instance"
@@ -48,7 +48,18 @@ f_new_remote_hosts() {
 
 f_download_config() {
 	if [[ "$1" =~ "http://" ]]; then
-		wget $1 -O ${CONFIG_REPOSITORY}/instancer_config.tar
+		#
+		# Download quietly with wget, save under static name
+		#
+		wget -q $1 -O ${CONFIG_REPOSITORY}/instancer_config.tar 
+		if [[ $? == "0" ]]; then
+			echo "Saved into ${CONFIG_REPOSITORY}/instancer_config.tar" 
+			ls -ld ${CONFIG_REPOSITORY}/instancer_config.tar
+		else
+			echo "Download failed, exiting..."
+			exit 5
+		fi
+		echo
 	elif [[ "$1" =~ "/" ]]; then
 		if [ -e $1 ]; then
 			cp -pr $1 ${CONFIG_REPOSITORY}/instancer_config.tar	
@@ -248,8 +259,7 @@ create_new_boinc_instance () {
 
 	for PROJECT in $(ls ${CONFIG_REPOSITORY}/boinc_accounts/account*xml); do 
 		AC_FILE=$(basename ${PROJECT})
-		printf "Copy account config file ${AC_FILE}? [Y/n] ";
-		read;
+		read -p "Enable ${AC_FILE}? [Y|n] " -i "Y" -e REPLY
 		if [[ ${REPLY} == "" || ${REPLY} == "Y"  || ${REPLY} == "y" ]]; then
 			echo "Enabled"
 			cp -pr ${PROJECT} ${INSTANCE_DIR}
@@ -331,6 +341,11 @@ delete_instance() {
 	INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
         CDIR=$(pwd)
 
+	if [[ ! -e "${INSTANCE_DIR}" ]]; then
+		echo "The specified instance does not exist, check your input..."
+		exit 10
+	fi
+
         cd ${INSTANCE_DIR}
         BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
 	for MASTER_URL in $(${BOINCCMD} --get_project_status | awk '/master URL:/ { print $3 }'); do
@@ -341,27 +356,22 @@ delete_instance() {
 	cd ${INSTALL_ROOT}
 	sleep 2
 	f_stop_boinc ${INSTANCE_PORT} 
-	echo "deleting ${INSTANCE_DIR}"
-	rm -rf ${INSTANCE_DIR} && echo "OK"
+	echo
+	printf "deleting ${INSTANCE_DIR} - "
+	rm -rf ${INSTANCE_DIR} && echo "OK" || echo "Unsuccessful"
 	echo
 	${FILENAME} -l	
 }
 
 choose_delete_instance() {
-        echo "Choose which instance to delete:"
+        echo "Choose which instance to delete!"
         ${FILENAME} -l
 	echo
-        echo "Specify instance:"
-        read REPLY
+        read -p "Specify instance: " -e REPLY
         delete_instance ${REPLY}
 }
 
-#kill_instance() {
-#        echo "delete instance"
-#        ${FILENAME} -l
-#        read REPLY
-#        kill ${REPLY}
-#}
+
 refresh_config() {
         for INSTANCE_DIR in $(ls -1 ${INSTANCE_HOME} | egrep "boinc_[10000-65000]"); do
                 INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }');
@@ -388,6 +398,8 @@ else
         if [[ ! $0 =~ ${PARENT_COMMAND} ]]; then
         	echo "Initialize environment first to set up directories, etc..."
 		echo
+        	${FILENAME} -h
+		echo
 	fi
 fi
 
@@ -397,7 +409,7 @@ if [[ $# -eq 0 ]]; then
 	exit 0
 fi
 
-while getopts lnderchD:S:T:E: opt
+while getopts lndreschD:S:T:E: opt
 do
    case $opt in
 	l) instance_list;;
@@ -405,6 +417,7 @@ do
 	d) choose_delete_instance;;
 	r) refresh_config;;
 	e) setup_environment;;
+	s) start_all;;
 	E) setup_environment $OPTARG;;
 	S) start_boinc $OPTARG;;
 	T) f_stop_boinc $OPTARG;;
