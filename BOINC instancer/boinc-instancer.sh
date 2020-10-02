@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# v20200929
+# 20201002
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -192,7 +192,8 @@ instance_list() {
 				printf "%4s" "${NUM_ACTIVE_WU}"
 				printf "%5s" "${NUM_UPL_WU}"
 				printf "%5s" "${NUM_RTR_WU}"
-				printf "%-70s" " cd ${INSTANCE_HOME}/${INSTANCE_DIR}; boincmgr -m -g ${INSTANCE_PORT} -d ${INSTANCE_HOME}/${INSTANCE_DIR} &"
+				#printf "%-70s" " cd /obi/${INSTANCE_DIR}; boincmgr -m -g ${INSTANCE_PORT} -d . &"
+				printf "%-70s" " boincmgr -m -g ${INSTANCE_PORT} &"
 				echo
 				TOTAL_WU=$(echo ${TOTAL_WU}+${NUM_WUS} | bc)
 				TOTAL_DL=$(echo ${TOTAL_DL}+${NUM_DL_WU} | bc)
@@ -249,6 +250,7 @@ create_new_boinc_instance () {
 	# create instance directory
 	mkdir ${INSTANCE_DIR}
         cd ${INSTANCE_DIR}
+	ln -s -f ${INSTANCE_DIR} /obi/boinc_${INSTANCE_PORT}
 
 	#copy skeleton configuration to new instance
 	cp -pr ${CONFIG_REPOSITORY}/gui_rpc_auth.cfg ${INSTANCE_DIR}
@@ -289,6 +291,7 @@ setup_environment() {
 	# 
 	IC_URL=$1
 	echo "(Re)creating all needed directories..."
+	mkdir -p /obi && echo "      Created /obi short path dir"
 	mkdir -p ${INSTALL_ROOT} && echo "	Created ${INSTALL_ROOT}"
 	mkdir -p ${INSTALL_ROOT}/config_repo && echo "	Created ${INSTALL_ROOT}/config_repo"
 	mkdir -p ${INSTALL_ROOT}/config_repo/boinc_accounts && echo "	Created ${INSTALL_ROOT}/config_repo/boinc_accounts"
@@ -370,7 +373,6 @@ choose_delete_instance() {
         read -p "Specify instance: " -e REPLY
         delete_instance ${REPLY}
 }
-
 
 refresh_config() {
         for INSTANCE_DIR in $(ls -1 ${INSTANCE_HOME} | egrep "boinc_[10000-65000]"); do
