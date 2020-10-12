@@ -147,6 +147,7 @@ instance_list() {
 		INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }'); 
 		printf "%-12s" "$INSTANCE_DIR"
 		if [[ $(ps -ef | grep "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}") || ${INSTANCE_PORT} == "31416" ]]; then
+			cd ${INSTANCE_HOME}/${INSTANCE_DIR}
 			if [[ ${INSTANCE_PORT} == "31416" ]]; then
 				PID=$(ps -ef | grep -v grep | grep /usr/bin/boinc | awk '{ print $2 }' | head -1)
 			else
@@ -376,13 +377,17 @@ update_prefs() {
 	#
 	# Display all instances
 	#
-	${FILENAME} -l
+        if [[ ! $0 =~ ${PARENT_COMMAND} ]]; then
+		${FILENAME} -l
+	fi
 	echo
 	read -p "Specify instance: " -e INSTANCE_DIR
-	if [ ! -e ${INSTANCE_HOME}/${INSTANCE_DIR} ]; then
-		echo "${INSTANCE_DIR} is not a valid instance"
-		exit 7
+	if [[ ! -e ${INSTANCE_HOME}/${INSTANCE_DIR} || ${INSTANCE_DIR} == "" ]]; then
+		echo "Not a valid instance: ${INSTANCE_DIR}"
+		${FILENAME} -u
+		exit 0
 	fi
+	update_ncpus ${INSTANCE_DIR}
 	update_max_ncpus_pct ${INSTANCE_DIR}
 	update_work_buf_min_days ${INSTANCE_DIR}
 	update_work_buf_additional_days ${INSTANCE_DIR}
@@ -399,6 +404,7 @@ set_cpu_mode() {
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR="boinc_${INSTANCE_PORT}"
         BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
 
 	CPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/CPU status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
 	read -p "New CPU mode     [always|auto|never]: " -i "${CPU_MODE}" -e REPLY
@@ -411,6 +417,7 @@ set_gpu_mode() {
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR="boinc_${INSTANCE_PORT}"
         BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
 
         GPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/GPU status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
         read -p "New GPU mode     [always|auto|never]: " -i "${GPU_MODE}" -e REPLY
@@ -423,6 +430,7 @@ set_network_mode() {
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR="boinc_${INSTANCE_PORT}"
         BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
 
     	NETWORK_MODE=$(${BOINCCMD} --get_cc_status | awk '/Network status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
         read -p "New network mode [always|auto|never]: " -i "${NETWORK_MODE}" -e REPLY
@@ -431,6 +439,14 @@ set_network_mode() {
         fi
 }
 
+update_ncpus() {
+        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        INSTANCE_DIR=boinc_${INSTANCE_PORT}
+
+        ncpus=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml | awk '/ncpu/ { print $2 }' );
+        read -p "New ncpus:                            " -i "${ncpus}" -e REPLY
+        sed -i "s/<ncpus>$ncpus/<ncpus>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml
+}
 
 update_max_ncpus_pct() {
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
@@ -490,7 +506,8 @@ refresh_config() {
         INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }');
         BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
 	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
-        printf "$(${BOINCCMD} --read_cc_config) " && echo "Config refreshed!";
+        ${BOINCCMD} --read_cc_config && echo "Refreshed cc_config!";
+        ${BOINCCMD} --read_global_prefs_override && echo "Refreshed global_prefs_override!";
         cd ${INSTALL_ROOT}
 }
 
