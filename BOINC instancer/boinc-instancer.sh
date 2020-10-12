@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# 20201002
+# 20201012
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -19,6 +19,7 @@ help() {
 	echo "-r - refresh all config files"
 	echo "-e - enable minimal local environment, no config files" 
 	echo "-s - start all BOINC instances"
+	echo "-u - update preferences"
 	echo "-E \$ARG - enable local environment, load config from file/URL" 
 	echo "-S \$ARG - start specified instance"
 	echo "-T \$ARG - stop/terminate specified instance"
@@ -75,28 +76,25 @@ f_download_config() {
 start_boinc() {
         if [[ $1 == "boinc_31416" || $1 == "31416" ]]; then
                 echo "Refusing to start the default instance, use proper OS commands"
-                exit 2
-        fi
-
-        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
-        INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
-
-	ps -ef | grep -v "$$" | grep -q "dir "${INSTANCE_DIR}
-	if [[ $? == "0" ]]; then 
-		echo "boinc_${INSTANCE_PORT} already running, not starting again";
-		echo
-        	${FILENAME} -l
-		exit 4
+                return 1
 	else
-        	echo "Starting BOINC instance ${INSTANCE_PORT}"
-	fi
+        	INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        	INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
 
-        boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started (RC=$?), sleeping 5 seconds."
-        sleep 5
-
-        # print overview
-        echo;
-        ${FILENAME} -l
+		ps -ef | grep -v "$$" | grep -q "dir "${INSTANCE_DIR}
+		if [[ $? == "0" ]]; then 
+			echo "boinc_${INSTANCE_PORT} already running, not starting again";
+			echo
+        		${FILENAME} -l
+		else
+        		echo "Starting BOINC instance ${INSTANCE_PORT}"
+        		boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started (RC=$?), sleeping 5 seconds."
+        		sleep 5
+        		# print overview
+        		echo;
+        		${FILENAME} -l
+		fi
+        fi
 }
 
 f_stop_boinc() {
@@ -374,18 +372,133 @@ choose_delete_instance() {
         delete_instance ${REPLY}
 }
 
-refresh_config() {
+update_prefs() {
+	#
+	# Display all instances
+	#
+	${FILENAME} -l
+	echo
+	read -p "Specify instance: " -e INSTANCE_DIR
+	if [ ! -e ${INSTANCE_HOME}/${INSTANCE_DIR} ]; then
+		echo "${INSTANCE_DIR} is not a valid instance"
+		exit 7
+	fi
+	update_max_ncpus_pct ${INSTANCE_DIR}
+	update_work_buf_min_days ${INSTANCE_DIR}
+	update_work_buf_additional_days ${INSTANCE_DIR}
+	set_cpu_mode ${INSTANCE_DIR}
+	set_gpu_mode ${INSTANCE_DIR}
+	set_network_mode ${INSTANCE_DIR}
+	echo
+        refresh_config ${INSTANCE_DIR}
+	echo
+	${FILENAME} -l | egrep "INSTANCE|${INSTANCE_DIR}"
+}
+
+set_cpu_mode() {
+        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        INSTANCE_DIR="boinc_${INSTANCE_PORT}"
+        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+
+	CPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/CPU status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
+	read -p "New CPU mode     [always|auto|never]: " -i "${CPU_MODE}" -e REPLY
+	if [ ! ${REPLY} == ${CPU_MODE} ]; then
+		${BOINCCMD} --set_run_mode ${REPLY}
+	fi
+}
+
+set_gpu_mode() {
+        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        INSTANCE_DIR="boinc_${INSTANCE_PORT}"
+        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+
+        GPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/GPU status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
+        read -p "New GPU mode     [always|auto|never]: " -i "${GPU_MODE}" -e REPLY
+        if [ ! ${REPLY} == ${GPU_MODE} ]; then
+                ${BOINCCMD} --set_gpu_mode ${REPLY}
+        fi
+}
+
+set_network_mode() {
+        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        INSTANCE_DIR="boinc_${INSTANCE_PORT}"
+        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+
+    	NETWORK_MODE=$(${BOINCCMD} --get_cc_status | awk '/Network status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
+        read -p "New network mode [always|auto|never]: " -i "${NETWORK_MODE}" -e REPLY
+        if [ ! ${REPLY} == ${NETWORK_MODE} ]; then
+                ${BOINCCMD} --set_network_mode ${REPLY}
+        fi
+}
+
+
+update_max_ncpus_pct() {
+        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        INSTANCE_DIR=boinc_${INSTANCE_PORT}
+
+	if [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ]; then	
+		prefs_override_file=global_prefs_override.xml
+	elif [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then
+		prefs_override_file=global_prefs.xml
+	fi
+	max_ncpus_pct=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/max_ncpus_pct/ { print $2"/1" }' | bc ); 
+	read -p "New max_ncpus_pct:                    " -i "${max_ncpus_pct}" -e REPLY
+	sed -i "s/<max_ncpus_pct>$max_ncpus_pct/<max_ncpus_pct>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}	
+}
+
+update_work_buf_min_days() {
+        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        INSTANCE_DIR=boinc_${INSTANCE_PORT}
+
+        if [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ]; then
+                prefs_override_file=global_prefs_override.xml
+        elif [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then
+                prefs_override_file=global_prefs.xml
+        fi
+        work_buf_min_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_min_days/ { print $2"/1" }' |bc );
+        read -p "New work_buf_min_days:                " -i "${work_buf_min_days}" -e REPLY
+        sed -i "s/<work_buf_min_days>$work_buf_min_days/<work_buf_min_days>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
+}
+
+update_work_buf_additional_days() {
+        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        INSTANCE_DIR=boinc_${INSTANCE_PORT}
+
+        if [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ]; then
+                prefs_override_file=global_prefs_override.xml
+        elif [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then
+                prefs_override_file=global_prefs.xml
+        fi
+        work_buf_additional_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_additional_days/ { print $2"/1" }' |bc );
+        read -p "New work_buf_additional_days:         " -i "${work_buf_additional_days}" -e REPLY
+        sed -i "s/<work_buf_additional_days>$work_buf_additional_days/<work_buf_additional_days>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
+}
+
+
+refresh_config_all() {
         for INSTANCE_DIR in $(ls -1 ${INSTANCE_HOME} | egrep "boinc_[10000-65000]"); do
                 INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }');
                 if [[ $(ps -ef | grep "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}") ]]; then
-			printf "$INSTANCE_DIR "
-                        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
-			cd ${INSTANCE_HOME}/${INSTANCE_DIR}
-			${BOINCCMD} --read_cc_config && echo "Config refreshed";
-			cd ${INSTALL_ROOT}
+			printf "${INSTANCE_DIR} "
+			refresh_config ${INSTANCE_DIR}
 		fi
 	done
+}
 
+refresh_config() {
+	INSTANCE_DIR=$1
+        INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }');
+        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
+        printf "$(${BOINCCMD} --read_cc_config) " && echo "Config refreshed!";
+        cd ${INSTALL_ROOT}
+}
+
+
+start_all() {
+	for INSTANCE_DIR in $(ls -1 ${INSTANCE_HOME} | egrep "boinc_[10000-65000]"); do
+		start_boinc ${INSTANCE_DIR}		
+	done
 }
 
 
@@ -411,15 +524,16 @@ if [[ $# -eq 0 ]]; then
 	exit 0
 fi
 
-while getopts lndreschD:S:T:E: opt
+while getopts lndreschuD:S:T:E: opt
 do
    case $opt in
 	l) instance_list;;
 	n) create_new_boinc_instance;;
 	d) choose_delete_instance;;
-	r) refresh_config;;
+	r) refresh_config_all;;
 	e) setup_environment;;
 	s) start_all;;
+	u) update_prefs;;
 	E) setup_environment $OPTARG;;
 	S) start_boinc $OPTARG;;
 	T) f_stop_boinc $OPTARG;;
