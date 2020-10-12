@@ -11,6 +11,8 @@ Lets start with the help to get an overview:
 -d - delete instance picked from list
 -r - refresh all config files
 -e - enable minimal local environment, no config files
+-s - start all BOINC instances
+-u - update preferences
 -E $ARG - enable local environment, load config from .tar file/URL
 -S $ARG - start specified instance
 -T $ARG - stop/terminate specified instance
@@ -27,10 +29,10 @@ Lets have a look at several instance states:
 
 ```
 INSTANCE        PID    State   CPU  GPU  NET NCPU  CPU%   BUFFER PRJ  WUs  DL* ACT  UPL  RTR boincmgr call                                                        
-boinc_20002 2149420  Running  SUSP  ATP  ATP  24  100.0 10.0/5.0   1    390   0    0    0    0 cd /opt/boinc/instance_homes/boinc_20002; boincmgr -m -g 20002 -d /opt/boinc/instance_homes/boinc_20002 &
-boinc_20008 2149421  Running  SUSP  ATP  ATP  24  100.0 10.0/5.0   1    277   0    0    0    0 cd /opt/boinc/instance_homes/boinc_20008; boincmgr -m -g 20008 -d /opt/boinc/instance_homes/boinc_20008 &
-boinc_29315 2155415  Running   ACT ATP  SUSP  24  100.0 10.0/5.0   1    0   0    0    412    0 cd /opt/boinc/instance_homes/boinc_29315; boincmgr -m -g 29315 -d /opt/boinc/instance_homes/boinc_29315 &
-boinc_31416 2120013  Running   ACT  ACT  ACT   24  92.0 10.0/0.0  16 1918   0   23    0    2 cd /opt/boinc/instance_homes/boinc_31416; boincmgr -m -g 31416 -d /opt/boinc/instance_homes/boinc_31416 &
+boinc_20002 2149420  Running  SUSP  ATP  ATP  24  100.0 10.0/5.0   1    390   0    0    0    0 boincmgr -m -g 20002 &
+boinc_20008 2149421  Running  SUSP  ATP  ATP  24  100.0 10.0/5.0   1    277   0    0    0    0 boincmgr -m -g 20008 &
+boinc_29315 2155415  Running   ACT ATP  SUSP  24  100.0 10.0/5.0   1    0   0    0    412    0 boincmgr -m -g 29315 &
+boinc_31416 2120013  Running   ACT  ACT  ACT   24  92.0 10.0/0.0  16 1918   0   23    0    2 boincmgr -m -g 31416 &
 boinc_39106             Down
 boinc_43448             Down
 boinc_49094             Down
