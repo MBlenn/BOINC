@@ -6,7 +6,7 @@
 INSTALL_ROOT=/opt/boinc
 INSTANCE_HOME=${INSTALL_ROOT}/instance_homes
 CONFIG_REPOSITORY=${INSTALL_ROOT}/config_repo
-BOINC_PORT_RANGE="10000-65535"
+BOINC_PORT_RANGE="9000-65535"
 PARENT_COMMAND=$(ps -o comm= $PPID)
 FILENAME=$0
 
@@ -23,6 +23,7 @@ help() {
 	echo "-E \$ARG - enable local environment, load config from file/URL" 
 	echo "-S \$ARG - start specified instance"
 	echo "-T \$ARG - stop/terminate specified instance"
+	echo "-U \$ARM - update preferences of specified instance"
 	echo "-D \$ARG - delete specified instance (detach projects, remove instance)"
 }
 
@@ -130,6 +131,7 @@ instance_list() {
 	printf "%9s" "BUFFER";
 	printf "%4s" "PRJ";
 	printf "%5s" "WUs";
+	printf "%6s" "READY"
 	printf "%4s" "DL";
 	printf "%1s" "*";
 	printf "%4s" "ACT";
@@ -138,22 +140,27 @@ instance_list() {
 	printf "%-70s" " boincmgr call"
 	echo
 	TOTAL_WU=0
+	TOTAL_READY=0
 	TOTAL_DL=0
 	TOTAL_ACT=0
 	TOTAL_UPL=0
 	TOTAL_RTR=0
 
-	for INSTANCE_DIR in $(ls ${INSTANCE_HOME} | egrep "boinc_[10000-65000]"); do 
+	for INSTANCE_DIR in $(ls ${INSTANCE_HOME} | egrep "boinc_[$BOINC_PORT_RANGE]"); do 
 		INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }'); 
 		printf "%-12s" "$INSTANCE_DIR"
-		if [[ $(ps -ef | grep "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}") || ${INSTANCE_PORT} == "31416" ]]; then
+		if [[ $(ps -ef | grep -v grep | grep "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}") || $(ps -ef | grep -v grep | grep "allow_remote_gui_rpc --gui_rpc_port ${INSTANCE_PORT}") || ${INSTANCE_PORT} == "31416" ]]; then
 			cd ${INSTANCE_HOME}/${INSTANCE_DIR}
 			if [[ ${INSTANCE_PORT} == "31416" ]]; then
 				PID=$(ps -ef | grep -v grep | grep /usr/bin/boinc | awk '{ print $2 }' | head -1)
+				printf "%7s" "$PID";
+			elif [[ ${INSTANCE_PORT} -lt 10000 ]]; then
+				PID=$(ps -ef | grep -v grep | grep "allow_remote_gui_rpc --gui_rpc_port ${INSTANCE_PORT}" | awk '{ print $2 }')
+				printf "%7s" "$PID";
 			else
 				PID=$(ps -ef | grep "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}" | awk '{ print $2 }' | head -1) 
+				printf "%7s" "$PID";
 			fi
-			printf "%7s" "$PID";
 			printf "%9s" "Running"
 			BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
 			RC_CONNCHECK=$(${BOINCCMD} --get_host_info 2>/dev/null 1>/dev/null; echo $?)
@@ -169,6 +176,7 @@ instance_list() {
 				NUM_ACTIVE_WU=$(${BOINCCMD} --get_tasks | grep -c "active_task_state: EXECUTING")
 				NUM_UPL_WU=$(${BOINCCMD} --get_tasks | grep -c "  state: uploading")
 				NUM_RTR_WU=$(${BOINCCMD} --get_tasks | grep -c "ready to report: yes")
+				NUM_READY_WU=$(echo ${NUM_WUS}-${NUM_ACTIVE_WU}-${NUM_UPL_WU}-${NUM_RTR_WU} |bc)
 				NCPUS=$(awk -F"<|>" '/ncpus/ {print $3 }' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml)
 
 				if [ -f ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ] ; then 
@@ -186,6 +194,7 @@ instance_list() {
 				printf "%9s" "${BUFFER}";
 				printf "%4s" "${NUM_PROJECTS}"
 				printf "%5s" "${NUM_WUS}"
+				printf "%6s" "${NUM_READY_WU}"
 				printf "%4s" "${NUM_DL_WU}"
  				if [ ${NUM_DL_WU_PEND} -gt "0" ]; then printf "%1s" "!"; else printf "%1s" " "; fi
 				printf "%4s" "${NUM_ACTIVE_WU}"
@@ -195,6 +204,7 @@ instance_list() {
 				printf "%-70s" " boincmgr -m -g ${INSTANCE_PORT} &"
 				echo
 				TOTAL_WU=$(echo ${TOTAL_WU}+${NUM_WUS} | bc)
+				TOTAL_READY=$(echo ${TOTAL_READY}+${NUM_READY_WU} | bc)
 				TOTAL_DL=$(echo ${TOTAL_DL}+${NUM_DL_WU} | bc)
 				TOTAL_ACT=$(echo ${TOTAL_ACT}+${NUM_ACTIVE_WU} | bc)
 				TOTAL_UPL=$(echo ${TOTAL_UPL}+${NUM_UPL_WU} | bc)
@@ -204,9 +214,9 @@ instance_list() {
 				NUM_DL_WU_PEND="0"
 			elif [[ $RC_CONNCHECK == "1" ]]; then
 				if [ -f gui_rpc_auth.cfg ]; then 
-					echo "running but unreachable, gui_rpc_auth.cfg exists in current directory $(pwd), remove and retry! "
+					echo "Unreachable, gui_rpc_auth.cfg exists in current directory $(pwd), remove and retry! "
 				else
-					echo "running but unreachable"
+					echo "Running but unreachable"
 				fi
 				
 			fi
@@ -219,6 +229,7 @@ instance_list() {
 	printf "%-40s" "Load average: $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg)";
 	printf "%-28s" "";
 	printf "%5s" "${TOTAL_WU}";
+	printf "%6s" "${TOTAL_READY}";
 	printf "%4s" "${TOTAL_DL}";
 	printf "%5s" "${TOTAL_ACT}";
 	printf "%5s" "${TOTAL_UPL}";
@@ -278,7 +289,7 @@ create_new_boinc_instance () {
 	sleep 5
 	${BOINCCMD} --set_host_info BOINC_${INSTANCE_PORT}
 	${BOINCCMD} --set_run_mode never
-	#cp -pr ${CONFIG_REPOSITORY}/app_config.xml ${INSTANCE_DIR}/projects/universeathome.pl_universe/
+	${FILENAME} -U boinc_${INSTANCE_PORT}
 	${BOINCCMD} --read_cc_config
         cd ${CDIR}
 	${FILENAME} -l	
@@ -373,19 +384,38 @@ choose_delete_instance() {
         delete_instance ${REPLY}
 }
 
+update_prefs_w_input() {
+        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        INSTANCE_DIR="boinc_${INSTANCE_PORT}"
+        if [[ -e ${INSTANCE_HOME}/${INSTANCE_DIR} ]]; then
+		update_prefs ${INSTANCE_DIR}
+	else
+	        echo "Not a valid instance: ${INSTANCE_DIR}"
+	fi
+
+}
 update_prefs() {
 	#
-	# Display all instances
+	# -u brings up the instance list from which to chose the boinc_XXXXX instance
+	# -U boinc_XXXXX jumps directly to the configuration of the specified instance
 	#
-        if [[ ! $0 =~ ${PARENT_COMMAND} ]]; then
-		${FILENAME} -l
-	fi
-	echo
-	read -p "Specify instance: " -e INSTANCE_DIR
-	if [[ ! -e ${INSTANCE_HOME}/${INSTANCE_DIR} || ${INSTANCE_DIR} == "" ]]; then
-		echo "Not a valid instance: ${INSTANCE_DIR}"
-		${FILENAME} -u
-		exit 0
+
+	if [[ $1 =~ "boinc_" ]]; then
+		 INSTANCE_DIR="$1"
+	else
+		#
+		# Display all instances
+		#
+        	if [[ ! $0 =~ ${PARENT_COMMAND} ]]; then
+			${FILENAME} -l
+		fi
+		echo
+		read -p "Specify instance: " -e INSTANCE_DIR
+		if [[ ! -e ${INSTANCE_HOME}/${INSTANCE_DIR} || ${INSTANCE_DIR} == "" ]]; then
+			echo "Not a valid instance: ${INSTANCE_DIR}"
+			${FILENAME} -u
+			exit 0
+		fi
 	fi
 	update_ncpus ${INSTANCE_DIR}
 	update_max_ncpus_pct ${INSTANCE_DIR}
@@ -471,9 +501,10 @@ update_work_buf_min_days() {
         elif [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then
                 prefs_override_file=global_prefs.xml
         fi
-        work_buf_min_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_min_days/ { print $2"/1" }' |bc );
+        work_buf_min_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_min_days/ { print $2 }' );
         read -p "New work_buf_min_days:                " -i "${work_buf_min_days}" -e REPLY
-        sed -i "s/<work_buf_min_days>$work_buf_min_days/<work_buf_min_days>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
+        #sed -i "s/<work_buf_min_days>$work_buf_min_days/<work_buf_min_days>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
+	sed -i "s/<work_buf_min_days>.*/<work_buf_min_days>$REPLY<\/work_buf_min_days>/"  ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
 }
 
 update_work_buf_additional_days() {
@@ -485,9 +516,9 @@ update_work_buf_additional_days() {
         elif [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then
                 prefs_override_file=global_prefs.xml
         fi
-        work_buf_additional_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_additional_days/ { print $2"/1" }' |bc );
+        work_buf_additional_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_additional_days/ { print $2 }' );
         read -p "New work_buf_additional_days:         " -i "${work_buf_additional_days}" -e REPLY
-        sed -i "s/<work_buf_additional_days>$work_buf_additional_days/<work_buf_additional_days>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
+	sed -i "s/<work_buf_additional_days>.*/<work_buf_additional_days>$REPLY<\/work_buf_additional_days>/"  ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
 }
 
 
@@ -541,7 +572,7 @@ if [[ $# -eq 0 ]]; then
 	exit 0
 fi
 
-while getopts lndreschuD:S:T:E: opt
+while getopts lndreschuD:S:T:E:U: opt
 do
    case $opt in
 	l) instance_list;;
@@ -555,6 +586,7 @@ do
 	S) start_boinc $OPTARG;;
 	T) f_stop_boinc $OPTARG;;
 	D) delete_instance $OPTARG;;
+	U) update_prefs_w_input $OPTARG;;
 	h) help;;
 	*) help;;
    esac
