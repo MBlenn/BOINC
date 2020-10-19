@@ -595,31 +595,6 @@ fi
 
 
 
-
-
-exit 0
-
-while getopts lndreschuD:S:T:E:U: opt
-do
-   case $opt in
-	l) instance_list;;
-	n) create_new_boinc_instance;;
-	d) choose_delete_instance;;
-	r) refresh_config_all;;
-	e) setup_environment;;
-	s) start_all;;
-	u) update_prefs;;
-	E) setup_environment $OPTARG;;
-	S) start_boinc $OPTARG;;
-	T) f_stop_boinc $OPTARG;;
-	D) delete_instance $OPTARG;;
-	U) update_prefs_w_input $OPTARG;;
-	h) help;;
-	*) help;;
-   esac
-done
-
-
 ####################################
 # GoodBye
 ####################################
