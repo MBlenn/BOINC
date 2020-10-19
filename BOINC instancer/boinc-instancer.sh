@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# 20201012
+# 20201019
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -260,6 +260,8 @@ create_new_boinc_instance () {
 	# create instance directory
 	mkdir ${INSTANCE_DIR}
         cd ${INSTANCE_DIR}
+
+	# Create short path to instance directory
 	ln -s -f ${INSTANCE_DIR} /obi/boinc_${INSTANCE_PORT}
 
 	#copy skeleton configuration to new instance
@@ -289,10 +291,11 @@ create_new_boinc_instance () {
 	sleep 5
 	${BOINCCMD} --set_host_info BOINC_${INSTANCE_PORT}
 	${BOINCCMD} --set_run_mode never
+	echo
+	echo "Customize new instance boinc_${INSTANCE_PORT} or confirm defaults with ENTER:"
 	${FILENAME} -U boinc_${INSTANCE_PORT}
 	${BOINCCMD} --read_cc_config
         cd ${CDIR}
-	${FILENAME} -l	
 }
 
 setup_environment() {
@@ -309,7 +312,6 @@ setup_environment() {
 	ln -f -s /var/lib/boinc-client/ /opt/boinc/instance_homes/boinc_31416 &&  echo "	Created link to default BOINC 31416"
 
 	echo
-
 
 	cd ${CONFIG_REPOSITORY}
 	if [[ ! -z ${IC_URL} ]]; then
@@ -367,7 +369,7 @@ delete_instance() {
 	done
 
 	cd ${INSTALL_ROOT}
-	sleep 2
+	sleep 5
 	f_stop_boinc ${INSTANCE_PORT} 
 	echo
 	printf "deleting ${INSTANCE_DIR} - "
@@ -555,13 +557,32 @@ start_all() {
 # done defining functions
 ####################################
 
+while getopts lndreschuD:S:T:E:U: opt
+do
+   case $opt in
+        l) instance_list;;
+        n) create_new_boinc_instance;;
+        d) choose_delete_instance;;
+        r) refresh_config_all;;
+        e) setup_environment;;
+        s) start_all;;
+        u) update_prefs;;
+        E) setup_environment $OPTARG;;
+        S) start_boinc $OPTARG;;
+        T) f_stop_boinc $OPTARG;;
+        D) delete_instance $OPTARG;;
+        U) update_prefs_w_input $OPTARG;;
+        h) help;;
+        *) help;;
+   esac
+done
+
+
 if [ -e ${INSTALL_ROOT} ]; then
         cd ${INSTALL_ROOT}
 else
         if [[ ! $0 =~ ${PARENT_COMMAND} ]]; then
         	echo "Initialize environment first to set up directories, etc..."
-		echo
-        	${FILENAME} -h
 		echo
 	fi
 fi
@@ -571,6 +592,12 @@ if [[ $# -eq 0 ]]; then
 	${FILENAME} -h
 	exit 0
 fi
+
+
+
+
+
+exit 0
 
 while getopts lndreschuD:S:T:E:U: opt
 do
