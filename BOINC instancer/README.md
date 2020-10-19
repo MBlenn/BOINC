@@ -16,6 +16,7 @@ Lets start with the help to get an overview:
 -E $ARG - enable local environment, load config from .tar file/URL
 -S $ARG - start specified instance
 -T $ARG - stop/terminate specified instance
+-U $ARM - update preferences of specified instance
 -D $ARG - delete specified instance (detach projects, remove instance)
 ```
 
@@ -28,11 +29,11 @@ A host just needs the script itself and an archive containing client and account
 Lets have a look at several instance states:
 
 ```
-INSTANCE        PID    State   CPU  GPU  NET NCPU  CPU%   BUFFER PRJ  WUs  DL* ACT  UPL  RTR boincmgr call                                                        
-boinc_20002 2149420  Running  SUSP  ATP  ATP  24  100.0 10.0/5.0   1    390   0    0    0    0 boincmgr -m -g 20002 &
-boinc_20008 2149421  Running  SUSP  ATP  ATP  24  100.0 10.0/5.0   1    277   0    0    0    0 boincmgr -m -g 20008 &
-boinc_29315 2155415  Running   ACT ATP  SUSP  24  100.0 10.0/5.0   1    0   0    0    412    0 boincmgr -m -g 29315 &
-boinc_31416 2120013  Running   ACT  ACT  ACT   24  92.0 10.0/0.0  16 1918   0   23    0    2 boincmgr -m -g 31416 &
+INSTANCE        PID    State   CPU  GPU  NET NCPU  CPU%   BUFFER PRJ  WUs READY DL* ACT  UPL  RTR boincmgr call                                                        
+boinc_20002 2149420  Running  SUSP  ATP  ATP  24  100.0 10.0/5.0   1  390  390  0    0    0    0 boincmgr -m -g 20002 &
+boinc_20008 2149421  Running  SUSP  ATP  ATP  24  100.0 10.0/5.0   1  277  277  0    0    0    0 boincmgr -m -g 20008 &
+boinc_29315 2155415  Running   ACT ATP  SUSP  24  100.0 10.0/5.0   1    0    0  0    0    412  0 boincmgr -m -g 29315 &
+boinc_31416 2120013  Running   ACT  ACT  ACT   24  92.0 10.0/0.0  16 1918 1893  0   23    0    2 boincmgr -m -g 31416 &
 boinc_39106             Down
 boinc_43448             Down
 boinc_49094             Down
@@ -47,8 +48,8 @@ SUSP = suspended
 Besides the default instance (boinc_31416) there are several additional instances.  
 On the first two instances, CPU computing is suspended, these have plenty WUs in cache ready to crunch.  
 boinc_29315 has already gone through 412 WUs, but their upload is pending since this clients network access is SUSPended.  
-boinc_31416 is the default BOINC installation in /var/lib/boinc-client. This instance is currently crunching along on a huge stack of 1918 WUs in cache, from which 23 are in progress and 2 are ready to report (RTR). It can be displayed, but start/stop/delete won't work on this instance.  
-For all instances the total number of configured CPUs (NCPU), the buffer settings as well as the active CPU percentage is displayed. Each line closes with a tailored boincmg command that opens a BOINC Manager window for this specific instance. This command should be issued from the user that runs the desktop.
+boinc_31416 is the default BOINC installation in /var/lib/boinc-client. This instance is currently crunching along on a huge stack of 1918 WUs in cache, from which 1893 are ready to start, 23 are in progress and 2 are ready to report (RTR). It can be displayed, but start/stop/delete won't work on this instance.  
+For all instances the total number of configured CPUs (NCPU), the buffer settings as well as the active CPU percentage is displayed. Each line closes with a tailored boincmg command that opens a BOINC Manager window for this specific instance. This command should be issued from the user that runs the desktop. However, this only works when no GUI RPC password is set.
 
 ### Environment setup
 The BOINC instancer can set up the environment from a config file in .tar format (-E), or just create the basic directory structure (-e). The later has then to be filled by the user.
