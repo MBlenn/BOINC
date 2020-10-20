@@ -70,7 +70,7 @@ Resolving remotehttphost.com (remotehttphost.com)... 5.189.161.137
 Connecting to remotehttphost.com (remotehttphost.com)|5.189.161.137|:80... connected.
 HTTP request sent, awaiting response... 200 OK
 Length: 10240 (10K) [application/x-tar]
-Saving to: ‘/opt/boinc/config_repo/bic.tar’
+Saving to: ‘/opt/boinc/config_repo/instancer_config.tar’
 
 /opt/boinc/config_repo/instancer_config.tar          100%[=====================================================================================================================>]  10.00K  --.-KB/s    in 0.001s  
 
@@ -90,7 +90,7 @@ Creating new remote_hosts.cfg based on local network config - OK
 Copy (additional) account config files to /opt/boinc/config_repo/boinc_accounts
 ```
 In the above example, the instancer first creates the basic directory structure, then downloads the configuration from http://remotehttphost.com/bic.tar. A local .tar file could also be used instead. The archive is extracted, but existing files are not overwritten. Here an account configuratipon file for World Community Grid is included. Since the archive didn't exclude a remote_hosts.cfg, a new one is created allowing all hosts of the local network (computed from the default gateway). Additional account config files can be placed in the specified path, to be used by future instance creations.
-A sample configuration archive is provided [here](bic.tar). It includes a working WCG account file (via weak account key), cc_config.xml, global_prefs_override.xml as well as an empty gui_rpc_auth.cfg. Create your own archive by replacing or adding further account files.
+A sample configuration archive is provided [here](bic.tar), make sure to download it in raw mode. It includes a working WCG account file (via weak account key), cc_config.xml, global_prefs_override.xml as well as an empty gui_rpc_auth.cfg. Create your own archive by replacing or adding further account files.
 
 ### Instance creation
 ```
