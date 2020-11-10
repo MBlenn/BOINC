@@ -20,6 +20,7 @@ help() {
 	echo "-e - enable minimal local environment, no config files" 
 	echo "-s - start all BOINC instances"
 	echo "-u - update preferences"
+	echo "-t - stop/terminate all instances"
 	echo "-E \$ARG - enable local environment, load config from file/URL" 
 	echo "-S \$ARG - start specified instance"
 	echo "-T \$ARG - stop/terminate specified instance"
@@ -86,14 +87,14 @@ start_boinc() {
 		if [[ $? == "0" ]]; then 
 			echo "boinc_${INSTANCE_PORT} already running, not starting again";
 			echo
-        		${FILENAME} -l
+        		#${FILENAME} -l
 		else
         		echo "Starting BOINC instance ${INSTANCE_PORT}"
         		boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started (RC=$?), sleeping 5 seconds."
         		sleep 5
         		# print overview
         		echo;
-        		${FILENAME} -l
+        		#${FILENAME} -l
 		fi
         fi
 }
@@ -101,22 +102,22 @@ start_boinc() {
 f_stop_boinc() {
         if [[ $1 == "boinc_31416" || $1 == "31416" ]]; then
                 echo "Refusing to stop the default instance, use proper OS commands"
-                exit 7
-        fi
+                return 7
+	else
+       		INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+		INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
+		CDIR=$(pwd)
 
-        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
-        INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
-	CDIR=$(pwd)
+		cd ${INSTANCE_DIR}
+        	echo "Stopping BOINC instance ${INSTANCE_PORT}"
+        	boinccmd --host localhost:${INSTANCE_PORT} --quit && echo "Stopped (RC=$?), sleeping 5 seconds." || echo "Couldn't shut down ${INSTANCE_PORT}, please investigate!"
+        	sleep 5
 
-	cd ${INSTANCE_DIR}
-        echo "Stopping BOINC instance ${INSTANCE_PORT}"
-        boinccmd --host localhost:${INSTANCE_PORT} --quit && echo "Stopped (RC=$?), sleeping 5 seconds." || echo "Couldn't shut down ${INSTANCE_PORT}, investigate if you care."
-        sleep 5
-
-	cd ${CDIR}
-        # print overview
-        echo;
-        ${FILENAME} -l
+		cd ${CDIR}
+        	# print overview
+        	echo;
+  	#      ${FILENAME} -l
+	fi
 }
 
 instance_list() {
@@ -200,7 +201,6 @@ instance_list() {
 				printf "%4s" "${NUM_ACTIVE_WU}"
 				printf "%5s" "${NUM_UPL_WU}"
 				printf "%5s" "${NUM_RTR_WU}"
-				#printf "%-70s" " cd /obi/${INSTANCE_DIR}; boincmgr -m -g ${INSTANCE_PORT} -d . &"
 				printf "%-70s" " boincmgr -m -g ${INSTANCE_PORT} &"
 				echo
 				TOTAL_WU=$(echo ${TOTAL_WU}+${NUM_WUS} | bc)
@@ -261,9 +261,6 @@ create_new_boinc_instance () {
 	mkdir ${INSTANCE_DIR}
         cd ${INSTANCE_DIR}
 
-	# Create short path to instance directory
-	ln -s -f ${INSTANCE_DIR} /obi/boinc_${INSTANCE_PORT}
-
 	#copy skeleton configuration to new instance
 	cp -pr ${CONFIG_REPOSITORY}/gui_rpc_auth.cfg ${INSTANCE_DIR}
 	cp -pr ${CONFIG_REPOSITORY}/remote_hosts.cfg ${INSTANCE_DIR}
@@ -304,7 +301,6 @@ setup_environment() {
 	# 
 	IC_URL=$1
 	echo "(Re)creating all needed directories..."
-	mkdir -p /obi && echo "      Created /obi short path dir"
 	mkdir -p ${INSTALL_ROOT} && echo "	Created ${INSTALL_ROOT}"
 	mkdir -p ${INSTALL_ROOT}/config_repo && echo "	Created ${INSTALL_ROOT}/config_repo"
 	mkdir -p ${INSTALL_ROOT}/config_repo/boinc_accounts && echo "	Created ${INSTALL_ROOT}/config_repo/boinc_accounts"
@@ -551,13 +547,20 @@ start_all() {
 	done
 }
 
+stop_all() {
+        for INSTANCE_DIR in $(ls -1 ${INSTANCE_HOME} | egrep "boinc_[10000-65000]"); do
+                f_stop_boinc ${INSTANCE_DIR}
+        done
+}
+
+
 
 
 ####################################
 # done defining functions
 ####################################
 
-while getopts lndreschuD:S:T:E:U: opt
+while getopts lndreschutD:S:T:E:U: opt
 do
    case $opt in
         l) instance_list;;
@@ -567,6 +570,7 @@ do
         e) setup_environment;;
         s) start_all;;
         u) update_prefs;;
+	t) stop_all;;
         E) setup_environment $OPTARG;;
         S) start_boinc $OPTARG;;
         T) f_stop_boinc $OPTARG;;
