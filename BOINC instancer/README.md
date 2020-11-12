@@ -13,6 +13,7 @@ Lets start with the help to get an overview:
 -e - enable minimal local environment, no config files
 -s - start all BOINC instances
 -u - update preferences
+-t - terminate (stop) all instances
 -E $ARG - enable local environment, load config from .tar file/URL
 -S $ARG - start specified instance
 -T $ARG - stop/terminate specified instance
