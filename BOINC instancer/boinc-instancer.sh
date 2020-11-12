@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# 20201028
+# 20201112
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -8,8 +8,7 @@ INSTANCE_HOME=${INSTALL_ROOT}/instance_homes
 CONFIG_REPOSITORY=${INSTALL_ROOT}/config_repo
 BOINC_PORT_RANGE="9000-65535"
 PARENT_COMMAND=$(ps -o comm= $PPID)
-FILENAME=$0
-
+FILENAME=$(dirname $(readlink -f $0))/$(basename -- "$0")
 
 help() {
 	echo "-h - help (this)"
@@ -20,7 +19,7 @@ help() {
 	echo "-e - enable minimal local environment, no config files" 
 	echo "-s - start all BOINC instances"
 	echo "-u - update preferences"
-	echo "-t - stop/terminate all instances"
+	echo "-t - terminate (stop) all instances"
 	echo "-E \$ARG - enable local environment, load config from file/URL" 
 	echo "-S \$ARG - start specified instance"
 	echo "-T \$ARG - stop/terminate specified instance"
@@ -28,7 +27,22 @@ help() {
 	echo "-D \$ARG - delete specified instance (detach projects, remove instance)"
 }
 
-f_new_boinc_port() {
+f_new_boinc_next_port() {
+    LAST_PORT=$(ls ${INSTANCE_HOME} -1 | grep "boinc_" | sed 's/boinc_//' | sort -n | tail -1)
+    NEW_PORT=$(($LAST_PORT+1))
+    
+    netstat -an | grep ":${NEW_PORT} "
+    netstat -an | grep -q ":${NEW_PORT} "
+    if [[ $? != "0" ]] ; then
+	echo ${NEW_PORT}
+	return 0
+    else
+	echo "New Port ${NEW_PORT} is used"
+	return 1
+    fi
+}
+
+f_new_boinc_random_port() {
 	while true; do 
 		PORT=$(shuf -i ${BOINC_PORT_RANGE} -n 1)
 		if [ ! -e ${INSTANCE_HOME}/boinc_${PORT} ]; then 
@@ -87,14 +101,14 @@ start_boinc() {
 		if [[ $? == "0" ]]; then 
 			echo "boinc_${INSTANCE_PORT} already running, not starting again";
 			echo
-        		#${FILENAME} -l
+        		${FILENAME} -l
 		else
         		echo "Starting BOINC instance ${INSTANCE_PORT}"
         		boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started (RC=$?), sleeping 5 seconds."
         		sleep 5
         		# print overview
         		echo;
-        		#${FILENAME} -l
+			${FILENAME} -l
 		fi
         fi
 }
@@ -106,17 +120,34 @@ f_stop_boinc() {
 	else
        		INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
 		INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
-		CDIR=$(pwd)
+                if [[ ${INSTANCE_PORT} -lt 10000 ]]; then
+                        PID=$(ps -ef | grep -v grep | grep "allow_remote_gui_rpc --gui_rpc_port ${INSTANCE_PORT}" | awk '{ print $2 }')
+                else
+                        PID=$(ps -ef | grep "\-\-dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}" | awk '{ print $2 }' | head -1)
+                fi
 
-		cd ${INSTANCE_DIR}
-        	echo "Stopping BOINC instance ${INSTANCE_PORT}"
-        	boinccmd --host localhost:${INSTANCE_PORT} --quit && echo "Stopped (RC=$?), sleeping 5 seconds." || echo "Couldn't shut down ${INSTANCE_PORT}, please investigate!"
-        	sleep 5
+		if [[ ${PID} != "" ]]; then
+			CDIR=$(pwd)
 
-		cd ${CDIR}
-        	# print overview
-        	echo;
-  	#      ${FILENAME} -l
+			cd ${INSTANCE_DIR}
+        		echo "Stopping BOINC instance ${INSTANCE_PORT}"
+        		boinccmd --host localhost:${INSTANCE_PORT} --quit 
+			RC=$?
+			if [[ ${RC} == "0" ]]; then
+				echo "Stopped (RC=$?)"
+			else
+				echo "Couldn't shut down instance with port ${INSTANCE_PORT}, will simply kill it."
+				kill ${PID}
+			fi
+
+			#cd ${CDIR}
+        		# print overview
+        		#echo;
+  			#${FILENAME} -l
+
+		else
+			echo "Instance boinc_${INSTANCE_PORT} is not running"
+		fi
 	fi
 }
 
@@ -163,7 +194,14 @@ instance_list() {
 				printf "%7s" "$PID";
 			fi
 			printf "%9s" "Running"
-			BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+        		BOINCPWD=$(cat gui_rpc_auth.cfg)
+        		if [[ ${BOINCPWD} != "" ]]; then
+                		BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
+				BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} -p ${BOINCPWD} &"
+        		else
+                		BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
+				BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} &"
+        		fi
 			RC_CONNCHECK=$(${BOINCCMD} --get_host_info 2>/dev/null 1>/dev/null; echo $?)
 			if [[ $RC_CONNCHECK == "0" ]]; then
 				NUM_ACTIVE_WU="0"
@@ -201,7 +239,7 @@ instance_list() {
 				printf "%4s" "${NUM_ACTIVE_WU}"
 				printf "%5s" "${NUM_UPL_WU}"
 				printf "%5s" "${NUM_RTR_WU}"
-				printf "%-70s" " boincmgr -m -g ${INSTANCE_PORT} &"
+				printf "%-10s" " $BOINCMGR"
 				echo
 				TOTAL_WU=$(echo ${TOTAL_WU}+${NUM_WUS} | bc)
 				TOTAL_READY=$(echo ${TOTAL_READY}+${NUM_READY_WU} | bc)
@@ -214,9 +252,9 @@ instance_list() {
 				NUM_DL_WU_PEND="0"
 			elif [[ $RC_CONNCHECK == "1" ]]; then
 				if [ -f gui_rpc_auth.cfg ]; then 
-					echo "Unreachable, gui_rpc_auth.cfg exists in current directory $(pwd), remove and retry! "
+					echo " Unreachable, gui_rpc_auth.cfg exists with passwd ${BOINCPWD}. Try restarting BOINC. "
 				else
-					echo "Running but unreachable"
+					echo " Running but unreachable"
 				fi
 				
 			fi
@@ -251,11 +289,13 @@ instance_list() {
 create_new_boinc_instance () {
 	
 	# find suitable port
-	INSTANCE_PORT=$(f_new_boinc_port)
+	INSTANCE_PORT=$(f_new_boinc_next_port)
+	read -p "[R]andom or Port \"${INSTANCE_PORT}\" : " -i "${INSTANCE_PORT}" -e REPLY
+	if [ "$REPLY" = "R" ] ; then
+	    INSTANCE_PORT=$(f_new_boinc_random_port)
+	fi
 	INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
-        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
 	CDIR=$(pwd)
-
 	
 	# create instance directory
 	mkdir ${INSTANCE_DIR}
@@ -282,11 +322,18 @@ create_new_boinc_instance () {
 	#chown
 	chown -R root:root ${INSTANCE_DIR}
 
-	#launch
+	BOINCPWD=$(cat gui_rpc_auth.cfg)
+	if [[ ${BOINCPWD} != "" ]]; then
+        	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
+	else
+        	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
+	fi
+
+	# launch new instance
 	boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started, RC=$?" || return 1
 	echo "Created new instance ${INSTANCE_PORT}. Sleeping 5s."
 	sleep 5
-	${BOINCCMD} --set_host_info BOINC_${INSTANCE_PORT}
+	${BOINCCMD} --set_host_info BOINC_${INSTANCE_PORT} 
 	${BOINCCMD} --set_run_mode never
 	echo
 	echo "Customize new instance boinc_${INSTANCE_PORT} or confirm defaults with ENTER:"
@@ -358,7 +405,14 @@ delete_instance() {
 	fi
 
         cd ${INSTANCE_DIR}
-        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+
+        BOINCPWD=$(cat ${INSTANCE_DIR}/gui_rpc_auth.cfg)
+        if [[ ${BOINCPWD} != "" ]]; then
+                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
+        else
+                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
+        fi
+
 	for MASTER_URL in $(${BOINCCMD} --get_project_status | awk '/master URL:/ { print $3 }'); do
 		echo "Detaching ${MASTER_URL}"	
 		${BOINCCMD} --project ${MASTER_URL} detach;
@@ -367,6 +421,7 @@ delete_instance() {
 	cd ${INSTALL_ROOT}
 	sleep 5
 	f_stop_boinc ${INSTANCE_PORT} 
+	cd ${INSTALL_ROOT}
 	echo
 	printf "deleting ${INSTANCE_DIR} - "
 	rm -rf ${INSTANCE_DIR} && echo "OK" || echo "Unsuccessful"
@@ -431,8 +486,14 @@ update_prefs() {
 set_cpu_mode() {
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR="boinc_${INSTANCE_PORT}"
-        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+
 	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
+        BOINCPWD=$(cat gui_rpc_auth.cfg)
+        if [[ ${BOINCPWD} != "" ]]; then
+                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
+        else
+                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
+        fi
 
 	CPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/CPU status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
 	read -p "New CPU mode     [always|auto|never]: " -i "${CPU_MODE}" -e REPLY
@@ -444,8 +505,14 @@ set_cpu_mode() {
 set_gpu_mode() {
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR="boinc_${INSTANCE_PORT}"
-        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
+
 	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
+        BOINCPWD=$(cat gui_rpc_auth.cfg)
+        if [[ ${BOINCPWD} != "" ]]; then
+                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
+        else
+                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
+        fi
 
         GPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/GPU status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
         read -p "New GPU mode     [always|auto|never]: " -i "${GPU_MODE}" -e REPLY
@@ -457,8 +524,14 @@ set_gpu_mode() {
 set_network_mode() {
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR="boinc_${INSTANCE_PORT}"
-        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
 	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
+
+        BOINCPWD=$(cat gui_rpc_auth.cfg)
+        if [[ ${BOINCPWD} != "" ]]; then
+                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
+        else
+                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
+        fi
 
     	NETWORK_MODE=$(${BOINCCMD} --get_cc_status | awk '/Network status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
         read -p "New network mode [always|auto|never]: " -i "${NETWORK_MODE}" -e REPLY
@@ -533,8 +606,15 @@ refresh_config_all() {
 refresh_config() {
 	INSTANCE_DIR=$1
         INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }');
-        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT}"
 	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
+
+        BOINCPWD=$(cat gui_rpc_auth.cfg)
+        if [[ ${BOINCPWD} != "" ]]; then
+                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
+        else
+                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
+        fi
+
         ${BOINCCMD} --read_cc_config && echo "Refreshed cc_config!";
         ${BOINCCMD} --read_global_prefs_override && echo "Refreshed global_prefs_override!";
         cd ${INSTALL_ROOT}
@@ -552,8 +632,6 @@ stop_all() {
                 f_stop_boinc ${INSTANCE_DIR}
         done
 }
-
-
 
 
 ####################################
