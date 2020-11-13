@@ -70,6 +70,9 @@ f_get_boincpwd() {
 			if [[ ${BOINCPWD} != "" ]]; then
 				echo "--passwd "${BOINCPWD}" "
         			return 0
+			else
+				echo "--passwd \"\" "
+        			return 0
 			fi
 		fi
 	fi
