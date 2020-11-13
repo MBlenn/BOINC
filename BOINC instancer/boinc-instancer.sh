@@ -364,8 +364,16 @@ setup_environment() {
 	mkdir -p ${INSTALL_ROOT}/config_repo && echo "	Created ${INSTALL_ROOT}/config_repo"
 	mkdir -p ${INSTALL_ROOT}/config_repo/boinc_accounts && echo "	Created ${INSTALL_ROOT}/config_repo/boinc_accounts"
 	mkdir -p ${INSTANCE_HOME} && echo "	Created ${INSTANCE_HOME}"
-	ln -f -s /var/lib/boinc-client/ /opt/boinc/instance_homes/boinc_31416 &&  echo "	Created link to default BOINC 31416"
-
+	
+	# Ubuntu
+	if [ -d /var/lib/boinc-client ] ; then
+    		ln -f -s /var/lib/boinc-client/ /opt/boinc/instance_homes/boinc_31416 &&  echo "	Created link to default BOINC 31416"
+    	fi
+    	# Fedora
+	if [ -d /var/lib/boinc ] ; then
+    		ln -f -s /var/lib/boinc/ /opt/boinc/instance_homes/boinc_31416 &&  echo "	Created link to default BOINC 31416"
+    	fi
+	
 	echo
 
 	cd ${CONFIG_REPOSITORY}
