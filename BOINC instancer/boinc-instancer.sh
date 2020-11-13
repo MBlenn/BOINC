@@ -62,7 +62,19 @@ f_new_remote_hosts() {
 		NUM=$((NUM+1)); 
 	done
 }
-
+f_get_boincpwd() {
+	GUI_RPC_AUTH=$1
+	if [ "$(basename -- ${GUI_RPC_AUTH})" == "gui_rpc_auth.cfg" ] ; then
+		if [ -e ${GUI_RPC_AUTH} ] ; then
+			BOINCPWD=$(cat ${GUI_RPC_AUTH})
+			if [[ ${BOINCPWD} != "" ]]; then
+				echo "--passwd "${BOINCPWD}" "
+        			return 0
+			fi
+		fi
+	fi
+	return 1
+}
 f_download_config() {
 	if [[ "$1" =~ "http://" ]]; then
 		#
@@ -205,16 +217,20 @@ instance_list() {
 			RC_CONNCHECK=$(${BOINCCMD} --get_host_info 2>/dev/null 1>/dev/null; echo $?)
 			if [[ $RC_CONNCHECK == "0" ]]; then
 				NUM_ACTIVE_WU="0"
-				CPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/CPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
-				GPU_MODE=$(${BOINCCMD} --get_cc_status |  awk '/GPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
-				NETWORK_MODE=$(${BOINCCMD} --get_cc_status | awk '/Network status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
+				
+				CC_STATUS=$($BOINCCMD --get_cc_status)
+				TASKS=$($BOINCCMD --get_tasks)
+				
+				CPU_MODE=$(echo "${CC_STATUS}" | awk '/CPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
+				GPU_MODE=$(echo "${CC_STATUS}" | awk '/GPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
+				NETWORK_MODE=$(echo "${CC_STATUS}" | awk '/Network status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
 				NUM_PROJECTS=$(${BOINCCMD} --get_project_status | grep -c "master URL:")
-				NUM_WUS=$(${BOINCCMD} --get_tasks | grep -c "WU name")
-				NUM_DL_WU=$(${BOINCCMD} --get_tasks | grep -c "state: downloading")
+				NUM_WUS=$(echo "${TASKS}" | grep -c "WU name")
+				NUM_DL_WU=$(echo "${TASKS}" | grep -c "state: downloading")
 				NUM_DL_WU_PEND=$(${BOINCCMD} --get_file_transfers | awk '/direction: download/ { if($2=="download"); getline; getline; print}' | grep -c "xfer active: no")
-				NUM_ACTIVE_WU=$(${BOINCCMD} --get_tasks | grep -c "active_task_state: EXECUTING")
-				NUM_UPL_WU=$(${BOINCCMD} --get_tasks | grep -c "  state: uploading")
-				NUM_RTR_WU=$(${BOINCCMD} --get_tasks | grep -c "ready to report: yes")
+				NUM_ACTIVE_WU=$(echo "${TASKS}" | grep -c "active_task_state: EXECUTING")
+				NUM_UPL_WU=$(echo "${TASKS}" | grep -c "  state: uploading")
+				NUM_RTR_WU=$(echo "${TASKS}" | grep -c "ready to report: yes")
 				NUM_READY_WU=$(echo ${NUM_WUS}-${NUM_ACTIVE_WU}-${NUM_UPL_WU}-${NUM_RTR_WU} |bc)
 				NCPUS=$(awk -F"<|>" '/ncpus/ {print $3 }' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml)
 
@@ -322,12 +338,8 @@ create_new_boinc_instance () {
 	#chown
 	chown -R root:root ${INSTANCE_DIR}
 
-	BOINCPWD=$(cat gui_rpc_auth.cfg)
-	if [[ ${BOINCPWD} != "" ]]; then
-        	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
-	else
-        	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
-	fi
+	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "${BOINCPWD}
 
 	# launch new instance
 	boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started, RC=$?" || return 1
@@ -406,12 +418,8 @@ delete_instance() {
 
         cd ${INSTANCE_DIR}
 
-        BOINCPWD=$(cat ${INSTANCE_DIR}/gui_rpc_auth.cfg)
-        if [[ ${BOINCPWD} != "" ]]; then
-                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
-        else
-                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
-        fi
+        BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "$BOINCPWD
 
 	for MASTER_URL in $(${BOINCCMD} --get_project_status | awk '/master URL:/ { print $3 }'); do
 		echo "Detaching ${MASTER_URL}"	
@@ -487,14 +495,10 @@ set_cpu_mode() {
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR="boinc_${INSTANCE_PORT}"
 
-	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
-        BOINCPWD=$(cat gui_rpc_auth.cfg)
-        if [[ ${BOINCPWD} != "" ]]; then
-                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
-        else
-                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
-        fi
-
+	#cd ${INSTANCE_HOME}/${INSTANCE_DIR}
+        
+	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "${BOINCPWD}
 	CPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/CPU status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
 	read -p "New CPU mode     [always|auto|never]: " -i "${CPU_MODE}" -e REPLY
 	if [ ! ${REPLY} == ${CPU_MODE} ]; then
@@ -506,14 +510,10 @@ set_gpu_mode() {
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR="boinc_${INSTANCE_PORT}"
 
-	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
-        BOINCPWD=$(cat gui_rpc_auth.cfg)
-        if [[ ${BOINCPWD} != "" ]]; then
-                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
-        else
-                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
-        fi
-
+	#cd ${INSTANCE_HOME}/${INSTANCE_DIR}
+        
+	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "${BOINCPWD}
         GPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/GPU status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
         read -p "New GPU mode     [always|auto|never]: " -i "${GPU_MODE}" -e REPLY
         if [ ! ${REPLY} == ${GPU_MODE} ]; then
@@ -524,14 +524,11 @@ set_gpu_mode() {
 set_network_mode() {
         INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         INSTANCE_DIR="boinc_${INSTANCE_PORT}"
-	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
 
-        BOINCPWD=$(cat gui_rpc_auth.cfg)
-        if [[ ${BOINCPWD} != "" ]]; then
-                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
-        else
-                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
-        fi
+	#cd ${INSTANCE_HOME}/${INSTANCE_DIR}
+
+	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "${BOINCPWD}
 
     	NETWORK_MODE=$(${BOINCCMD} --get_cc_status | awk '/Network status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
         read -p "New network mode [always|auto|never]: " -i "${NETWORK_MODE}" -e REPLY
@@ -606,14 +603,11 @@ refresh_config_all() {
 refresh_config() {
 	INSTANCE_DIR=$1
         INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }');
-	cd ${INSTANCE_HOME}/${INSTANCE_DIR}
 
-        BOINCPWD=$(cat gui_rpc_auth.cfg)
-        if [[ ${BOINCPWD} != "" ]]; then
-                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
-        else
-                BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
-        fi
+	#cd ${INSTANCE_HOME}/${INSTANCE_DIR}
+
+	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "${BOINCPWD}
 
         ${BOINCCMD} --read_cc_config && echo "Refreshed cc_config!";
         ${BOINCCMD} --read_global_prefs_override && echo "Refreshed global_prefs_override!";
