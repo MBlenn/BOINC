@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# 20201112
+# 20210124
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -347,6 +347,8 @@ create_new_boinc_instance () {
 	sleep 5
 	${BOINCCMD} --set_host_info BOINC_${INSTANCE_PORT} 
 	${BOINCCMD} --set_run_mode never
+	# Start BOINC benchmark, should have finished once the instance is configured
+	${BOINCCMD} --run_benchmarks
 	echo
 	echo "Customize new instance boinc_${INSTANCE_PORT} or confirm defaults with ENTER:"
 	${FILENAME} -U boinc_${INSTANCE_PORT}
