@@ -1,0 +1,111 @@
+#!/bin/bash
+# v20210204
+
+if [ -z $1 ]; then
+	echo "Please specify results URL for one host";
+	exit 1;
+else
+	FULLURL="$1";
+fi
+
+#
+# Change MAXOFFSET to download more WUs 
+#
+MAXOFFSET=100; 
+
+LYNX=`which lynx`
+if [ $? -ne 0 ]; then
+	echo "CLI browser lynx not available, will install it with apt"
+	sleep 2
+	sudo apt -y install lynx;
+fi;
+
+URL=$(echo "$FULLURL" | awk -F"results.php" '{ print $1 }')
+HOSTID=$(echo "${FULLURL}" | awk -F"hostid=" '{ print $2 }' | awk -F\& '{ print $1 }')
+APPID=$(echo "${FULLURL}"| awk -F"appid=" '{ print $2 }' | awk -F\& '{ print $1 }')
+
+cat /dev/null > /tmp/WU_all_data.raw
+cat /dev/null > /tmp/WU_runtime_granted
+cat /dev/null > /tmp/WU_data.raw
+cat /dev/null > /tmp/host_details
+
+OFFSET=0; 
+while [[ $OFFSET -lt $MAXOFFSET ]]; do
+	printf "$OFFSET ";
+	lynx -nomargins -dont_wrap_pre --dump "${URL}results.php?offset=${OFFSET}&hostid=${HOSTID}&state=4&appid=${APPID}" | grep UTC | sed 's/UTC/UTC /g' | egrep -i -v "Aborted|Progress|Redundant|waiting|pending|New"  > /tmp/WU_data.raw;
+	WCL=$(wc -l /tmp/WU_data.raw | awk '{ print $1 }')
+	if [[ $WCL -eq 0 ]]; then 
+		OFFSET=$MAXOFFSET
+	else 
+		OFFSET=$(($OFFSET+20))
+		cat /tmp/WU_data.raw >> /tmp/WU_all_data.raw
+	fi
+done
+WCL=$(wc -l /tmp/WU_all_data.raw | awk '{ print $1 }')
+if [[ $WCL -eq 0 ]]; then 
+	echo "- No result data loaded from project server, exiting..."
+	exit 1
+else
+	echo "- download complete. Calculating..."
+	if [[ ${APPID} != "" ]]; then
+		# APPID is set, get APP name
+		WORKUNIT_ID=$(head -1 /tmp/WU_all_data.raw | awk '{ print $2 }' | awk -F"]" '{ print $2 }')
+		application_name=$(lynx -nomargins -dont_wrap_pre --dump "${URL}workunit.php?wuid=${WORKUNIT_ID}" | awk '/application/ { $1=""; print $0 }' | sed 's/^ //')
+		printf "%-15s" "Application: ";             printf "%35s" "${application_name}"; echo
+	fi
+fi
+
+while read line; do
+        echo ${line} | grep -q validated && T1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $1 }')
+        echo ${line} | grep -q validated && T2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $2 }')
+        echo ${line} | grep -q validated && C1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $3 }')
+        echo ${line} | grep -q validated && C2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $4 }')
+        echo $C2 |egrep -q "^([0-9]*,)*([0-9]*)+\.[0-9][0-9]";
+        if [[ $? == 0 ]]; then
+		# C2 is numerical, so claimed/granted based
+                GRANTED=$(echo $C2 | sed 's/[./,]//g')
+        else
+		# C2 is not numerical, so not claimed/granted based
+                GRANTED=$(echo $C1 | sed 's/[./,]//g')
+        fi
+
+        T1=$(echo ${T1} | awk -F"." '{ print $1 }' | sed 's/,//g')
+        T2=$(echo ${T2} | awk -F"." '{ print $1 }' | sed 's/,//g')
+        if [[ $T1 -gt $T2 ]]; then
+                echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
+        else
+                echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
+        fi;
+done < /tmp/WU_all_data.raw
+
+TOTALTIME=0; 
+for WURUNTIME in $(cat /tmp/WU_runtime_granted | awk '{ print $1 }'); do
+	TIME=$(echo ${WURUNTIME} | awk -F. '{ print $1 }' | sed 's/,//g')
+	TOTALTIME=$(echo "${TOTALTIME}+${TIME}" | bc -l)
+done
+
+TOTALCREDIT=0; 
+for WUCREDIT in $(cat /tmp/WU_runtime_granted | awk '{ print $2 }'); do
+        CREDIT=$(echo ${WUCREDIT} | awk -F. '{ print $1 }' | sed 's/,//g')
+        TOTALCREDIT=$(echo "${TOTALCREDIT}+${CREDIT}" | bc -l)
+done
+
+lynx -nomargins -dont_wrap_pre --dump "${URL}show_host_detail.php?hostid=${HOSTID}" > /tmp/host_details
+
+RESULTS=$(cat /tmp/WU_all_data.raw | wc -l) 
+AVGTIME=$(echo "scale=1; ${TOTALTIME}/${RESULTS}" | bc -l)
+AVGCREDIT=$(echo "scale=2; ${TOTALCREDIT}/${RESULTS}/100" | bc -l)
+COREPERDAY=$(echo "scale=1; (86400/$AVGTIME)*$AVGCREDIT" | bc -l | awk -F"." '{ print $1 }')
+CPU=$(cat /tmp/host_details | grep -A1 "CPU type" | tail -n1 | cut -f1 -d[ | sed 's/ $//' )
+OS=$(cat /tmp/host_details | grep -A2 "Operating System" | sed 's/Operating System //' | grep -v "BOINC version" | xargs | cut -f1 -d[ | sed 's/ $//' )
+NUMPROC=$(cat /tmp/host_details | egrep "Number of processors|Number of CPUs" | awk '{ print $4 }')
+FULLSYSTEMPERDAY=$(echo "scale=1; ($NUMPROC*$COREPERDAY)" | bc -l | awk -F"." '{ print $1 }')
+
+printf "%-5s" "CPU:";				printf "%45s" "${CPU}"; echo
+printf "%-5s" "OS:";				printf "%45s" "${OS}"; echo
+printf "%-30s" "Results fetched: ";		printf "%20s" ${RESULTS}; echo
+printf "%-30s" "Average duration (s): ";		printf "%20s" ${AVGTIME}; echo
+printf "%-30s" "Average credit: ";		printf "%20s" ${AVGCREDIT}; echo
+printf "%-30s" "Number of reported cores: "; 	printf "%20s" ${NUMPROC}; echo
+printf "%-30s" "Per core per day: "; 		printf "%20s" ${COREPERDAY}; echo
+printf "%-30s" "Per system per day: "; 		printf "%20s" ${FULLSYSTEMPERDAY}; echo
