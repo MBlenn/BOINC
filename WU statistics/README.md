@@ -1,4 +1,4 @@
-# work in progress
+# Available scripts
 
 ## get_validated 
 This rather simple script downloads a set number of WUs from the results page of a BOINC host.
