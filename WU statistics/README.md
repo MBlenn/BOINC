@@ -8,7 +8,7 @@ The number of CPU cores, CPU information and OS are scraped from the show_host_d
 No support for multithreaded WUs or parallel running GPU apps.
 No support for Einstein@home (Drupal based) and Yoyo (ancient server code) yet.
 
-Download the script and make it executable, then add the full URL in quotation marks:
+[Download](https://raw.githubusercontent.com/MBlenn/BOINC/master/WU%20statistics/get_validated) the script and make it executable, then add the full URL in quotation marks:
 
 ```
 ./get_validated.sh "https://www.sidock.si/sidock/results.php?hostid=1045&offset=0&show_names=0&state=0&appid=2"
