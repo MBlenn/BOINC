@@ -1,0 +1,142 @@
+#!/bin/bash
+
+
+# WCG_USER_NAME must not be the mail address but the user name used to login to WCG
+WCG_USER_NAME=mywcgusername
+
+#Your WCG password
+WCG_PASSWORD=sup3r5ecretPw
+
+# Get verification code from https://secure.worldcommunitygrid.org/ms/viewMyProfile.do
+VERIFICATIONCODE=7e8184c2cc02ee0e09f550e7d5d03a3e
+
+# The executing user needs write access to this directory, grant or change
+BOINCDIR=/var/lib/boinc-client
+WCGRESULTSDB=${BOINCDIR}/wcgresults.db
+DEFAULTHOSTCORES=8
+HOSTCORECONFIG=/etc/boinc-client/hostcores
+
+if [[ ! -e ${HOSTCORECONFIG} ]]; then
+	echo "WARNING"
+	echo "  host to core mapping config file $HOSTCORECONFIG missing"
+	echo "  Add WCG hostname followed by SPACE then # of Cores"
+	echo "  hostA 4"
+	echo "  hostB 8"
+	echo "  hostC 2"
+	echo
+	echo "Will continue assuming ${DEFAULTHOSTCORES} cores per host..."
+fi
+
+if [[ $1 == "-h" || $1 == "--help" ]]; then
+	echo "HELP:"
+	echo "The script runs without any parameters, but requires few modifications"
+	echo "  Update variable VERIFICATIONCODE with your WCG verification key from https://secure.worldcommunitygrid.org/ms/viewMyProfile.do"
+	echo "  Update variable WCGUSER with your login user name (not mail address)."
+	echo "  Fill ${HOSTCORECONFIG} with WCG hostnames followed by a SPACE and then number of cores."
+	echo "  Make sure your user has write access to ${BOINCDIR} or change variable BOINCDIR"
+	exit 0
+fi
+
+cat  /dev/null > /tmp/wcgresultdump
+cat  /dev/null > /tmp/wcgresultdump_tmp
+cat  /dev/null > /tmp/wcgresultdump_stripped
+cat  /dev/null > /tmp/wcgresultdump_stripped_csv
+echo "Update started: $(date)"
+
+wget --quiet --save-cookies cookies.txt --keep-session-cookies --post-data "j_username=${WCG_USER_NAME}&j_password=${WCG_PASSWORD}" --delete-after https://www.worldcommunitygrid.org/j_security_check
+
+MAXOFFSET=10000
+OFFSET=0; 
+while [[ ${OFFSET} -lt ${MAXOFFSET} ]]; do 
+	wget --quiet -O /tmp/wcgresultdump_tmp --load-cookies cookies.txt "https://www.worldcommunitygrid.org/api/members/${WCG_USER_NAME}/results?code=${VERIFICATIONCODE}&Limit=250&offset=${OFFSET}&format=json&ValidateState=1"
+	
+	WCL=$(wc -l /tmp/wcgresultdump_tmp | awk '{ print $1 }')
+	if [[ $WCL -lt 2000 ]]; then 
+		# All WUs fetched
+		OFFSET=${MAXOFFSET} 
+		cat /tmp/wcgresultdump_tmp >> /tmp/wcgresultdump
+	else 
+		# Next fetch with higher offset
+		OFFSET=$(($OFFSET+100))
+		cat /tmp/wcgresultdump_tmp >> /tmp/wcgresultdump
+	fi
+done
+
+
+# Remove XML structure to split data into WU blocks
+cat /tmp/wcgresultdump | sed 's/[{|},|"]/ /g' > /tmp/wcgresultdump_stripped
+
+# Extract valid WUs and store in CSV (space separated) format
+for WUNAME in $(awk '/ Name :  / { print $3 }' /tmp/wcgresultdump_stripped); do 
+	grep -A 7 -B 11 ${WUNAME} /tmp/wcgresultdump_stripped | awk '{ print $3 }' | xargs
+done | awk '{ if ($18=="1") print }' > /tmp/wcgresultdump_stripped_csv
+
+wc -l /tmp/wcgresultdump_stripped_csv | awk '{ print $1 " validated results in WCG XML export"}'
+
+for WUNAME in $(awk '{ print $10 }' /tmp/wcgresultdump_stripped_csv); do 
+	grep -q $WUNAME ${WCGRESULTSDB}
+	if [[ ! $? == "0" ]]; then 
+		grep ${WUNAME} /tmp/wcgresultdump_stripped_csv >> ${WCGRESULTSDB}
+		echo "New result for ${WUNAME} added to ${WCGRESULTSDB}"
+	fi; 
+done
+
+rm -f /tmp/wcgresultdump
+rm -f /tmp/wcgresultdump_tmp
+rm -f /tmp/wcgresultdump_stripped
+rm -f /tmp/wcgresultdump_stripped_csv
+
+wc -l ${WCGRESULTSDB}
+echo
+
+GET_DISPLAYHOST() {
+	HOST=$1
+	HOSTALIAS=$(awk '/^'$HOST' / { print $3 }' ${HOSTCORECONFIG})
+        if [[ ${HOSTALIAS} != "" ]]; then
+                echo ${HOSTALIAS}
+        else
+                echo ${HOST}
+        fi
+}
+
+for HOST in $(awk '{ print $8 }' ${WCGRESULTSDB} | sort -u); do 
+	HOSTCORES=""
+	HOSTALIAS=""
+	DISPLAYHOST=""
+	HOSTCORES=$(awk '/^'$HOST' / { print $2 }' ${HOSTCORECONFIG})
+	DISPLAYHOST=$(GET_DISPLAYHOST ${HOST})
+	if [[ ${HOSTCORES} != "" ]]; then
+		echo "${DISPLAYHOST} (${HOSTCORES} threads)"
+	else
+		echo "${DISPLAYHOST} (!thread count unknown, assuming ${DEFAULTHOSTCORES}!)"
+		HOSTCORES=${DEFAULTHOSTCORES}
+	fi
+	printf "%20s" "Project:"
+	printf "%6s"  "#WUs:"
+	printf "%10s" "~Runtime:"
+	printf "%10s" "~Credits:"
+	printf "%10s" "C/d/Core:"
+	printf "%10s" "C/d/Host:"
+	echo
+	for PROJECT in $(awk '/'$HOST'/ { print $12 }' ${WCGRESULTSDB} | awk -F "_" '{ print $1 }' | sort -u); do 
+		NUMBEROFWUS=$(grep -e ${PROJECT} ${WCGRESULTSDB} | grep $HOST | tail -1000 | wc -l)
+		TOTALHOURS=$(grep -e ${PROJECT} ${WCGRESULTSDB} | awk '/'$HOST'/ { print $4 }' | tail -${NUMBEROFWUS} | xargs | sed 's/ /+/g' | bc -l)
+		TOTALGRANTED=$(grep -e ${PROJECT} ${WCGRESULTSDB} | awk '/'$HOST'/ { print $6 }' | tail -${NUMBEROFWUS} | xargs | sed 's/ /+/g' | bc -l)
+		AVGRTSECONDS=$(echo "scale=2; (${TOTALHOURS}*3600/${NUMBEROFWUS})/1" | bc -l)
+		AVGCREDIT=$(echo "scale=2; ${TOTALGRANTED}/${NUMBEROFWUS}/1" | bc -l)
+		AVGCREDITPERCORE=$(echo "scale=2; 86400/${AVGRTSECONDS}*${AVGCREDIT}/1" | bc -l)
+		CREDITSPERHOST=$(echo "scale=2; ${AVGCREDITPERCORE}*${HOSTCORES}" | bc -l)
+
+		printf "%20s" "${PROJECT}"
+		printf "%6s"  "${NUMBEROFWUS}"
+		printf "%10s" "${AVGRTSECONDS}"
+		printf "%10s" "${AVGCREDIT}"
+		printf "%10s" "${AVGCREDITPERCORE}"
+		printf "%10s" "${CREDITSPERHOST}"
+
+		echo
+
+	done
+	echo
+done
+
