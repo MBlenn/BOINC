@@ -2,7 +2,8 @@
 ### Introduction
 
 The BOINC instancer assists in managing parallel BOINC instances on the same host.  
-It creates and removes instances, simplifies their start/stop and provides an overview about the number of projects & WUs per instance.
+It creates, adjusts amd removes instances, simplifies their start/stop and provides an overview about the number of projects & WUs per instance.  
+
 Lets start with the help to get an overview:
 ```
 -h - help (this)
