@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# 20210124
+# 20210320
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -339,7 +339,7 @@ create_new_boinc_instance () {
 	chown -R root:root ${INSTANCE_DIR}
 
 	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
-	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "${BOINCPWD}
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} ${BOINCPWD}"
 
 	# launch new instance
 	boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started, RC=$?" || return 1
@@ -429,7 +429,7 @@ delete_instance() {
         cd ${INSTANCE_DIR}
 
         BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
-	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "$BOINCPWD
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} $BOINCPWD"
 
 	for MASTER_URL in $(${BOINCCMD} --get_project_status | awk '/master URL:/ { print $3 }'); do
 		echo "Detaching ${MASTER_URL}"	
@@ -488,6 +488,7 @@ update_prefs() {
 			exit 0
 		fi
 	fi
+	COLUMNWIDTH=50
 	update_ncpus ${INSTANCE_DIR}
 	update_max_ncpus_pct ${INSTANCE_DIR}
 	update_work_buf_min_days ${INSTANCE_DIR}
@@ -498,7 +499,37 @@ update_prefs() {
 	echo
         refresh_config ${INSTANCE_DIR}
 	echo
-	${FILENAME} -l | egrep "INSTANCE|${INSTANCE_DIR}"
+	#${FILENAME} -l | egrep "INSTANCE|${INSTANCE_DIR}"
+}
+
+f_tr_mode_number() {
+	MODE=$1
+	if [ "${MODE}" = "always" ]; then
+		echo 1
+		return 0
+	elif [ "${MODE}" = "auto" ]; then
+		echo 2
+		return 0
+	elif [ "${MODE}" = "never" ]; then
+		echo 3
+		return 0
+	fi
+	return 1
+}
+
+f_tr_number_mode() {
+        MODE=$1
+        if [ "${MODE}" == "1" ]; then
+                echo "always"
+                return 0
+        elif [ "${MODE}" == "2" ]; then
+                echo "auto"
+                return 0
+        elif [ "${MODE}" == "3" ]; then
+                echo "never"
+                return 0
+        fi
+        return 1
 }
 
 set_cpu_mode() {
@@ -508,10 +539,38 @@ set_cpu_mode() {
 	#cd ${INSTANCE_HOME}/${INSTANCE_DIR}
         
 	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
-	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "${BOINCPWD}
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} ${BOINCPWD}"
 	CPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/CPU status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
-	read -p "New CPU mode     [always|auto|never]: " -i "${CPU_MODE}" -e REPLY
-	if [ ! ${REPLY} == ${CPU_MODE} ]; then
+	MODE=$(f_tr_mode_number ${CPU_MODE})
+	if [ "${CPU_MODE}" = "always" ]; then
+		REPLY=always
+                read -p "CPU mode        (1. [ALWAYS], 2. auto, 3. never): " -i "${MODE}" -e REPLY_NUM
+	elif [ "${CPU_MODE}" = "auto" ]; then
+		REPLY=auto
+		read -p "CPU mode        (1. always, 2. [AUTO], 3. never): " -i "${MODE}" -e REPLY_NUM
+	elif [ "${CPU_MODE}" = "never" ]; then
+		REPLY=never
+		read -p "CPU mode        (1. always, 2. auto, 3. [NEVER]): " -i "${MODE}" -e REPLY_NUM
+	else
+		echo "Something wrong here, exiting..."
+		exit 1
+	fi
+
+	if [ "${REPLY_NUM}" = "" ]; then
+		REPLY=${CPU_MODE}
+	else
+		# check for valid reply
+		if [[ ${REPLY_NUM} -eq 1  || ${REPLY_NUM} -eq 2 || ${REPLY_NUM} -eq 3 ]]; then 	
+			REPLY=$(f_tr_number_mode ${REPLY_NUM})
+		else
+			echo "Invalid reply, skipping..."
+		fi
+	fi
+
+	#
+	# If changed, set via boinccmd
+	#
+	if [ ! "${REPLY}" = "${CPU_MODE}" ]; then
 		${BOINCCMD} --set_run_mode ${REPLY}
 	fi
 }
@@ -523,9 +582,38 @@ set_gpu_mode() {
 	#cd ${INSTANCE_HOME}/${INSTANCE_DIR}
         
 	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
-	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "${BOINCPWD}
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} ${BOINCPWD}"
         GPU_MODE=$(${BOINCCMD} --get_cc_status | awk '/GPU status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
-        read -p "New GPU mode     [always|auto|never]: " -i "${GPU_MODE}" -e REPLY
+        MODE=$(f_tr_mode_number ${GPU_MODE})
+        if [ "${GPU_MODE}" = "always" ]; then
+                REPLY=always
+		read -p "GPU mode        (1. [ALWAYS], 2. auto, 3. never): " -i "${MODE}" -e REPLY_NUM
+        elif [ "${GPU_MODE}" = "auto" ]; then
+                REPLY=auto
+		read -p "GPU mode        (1. always, 2. [AUTO], 3. never): " -i "${MODE}" -e REPLY_NUM
+        elif [ "${GPU_MODE}" = "never" ]; then
+                REPLY=never
+		read -p "GPU mode        (1. always, 2. auto, 3. [NEVER]): " -i "${MODE}" -e REPLY_NUM
+        else
+                echo "Something wrong here, exiting..."
+                exit 1
+        fi
+
+        if [ "${REPLY_NUM}" = "" ]; then
+                REPLY=${GPU_MODE}
+        else
+                # check for valid reply
+                if [[ ${REPLY_NUM} -eq 1  || ${REPLY_NUM} -eq 2 || ${REPLY_NUM} -eq 3 ]]; then              
+                        REPLY=$(f_tr_number_mode ${REPLY_NUM})
+                else
+                        echo "Invalid reply, skipping..."
+                fi
+        fi
+
+
+        #
+        # If changed, set via boinccmd
+        #
         if [ ! ${REPLY} == ${GPU_MODE} ]; then
                 ${BOINCCMD} --set_gpu_mode ${REPLY}
         fi
@@ -538,10 +626,40 @@ set_network_mode() {
 	#cd ${INSTANCE_HOME}/${INSTANCE_DIR}
 
 	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
-	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "${BOINCPWD}
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} ${BOINCPWD}"
 
     	NETWORK_MODE=$(${BOINCCMD} --get_cc_status | awk '/Network status/ { getline; getline; if ($3=="always") print $3; if ($3=="never") print $3; if ($3=="according") print "auto";}')
-        read -p "New network mode [always|auto|never]: " -i "${NETWORK_MODE}" -e REPLY
+
+        MODE=$(f_tr_mode_number ${NETWORK_MODE})
+        if [ "${NETWORK_MODE}" = "always" ]; then
+                REPLY=always
+		read -p "Network mode    (1. [ALWAYS], 2. auto, 3. never): " -i "${MODE}" -e REPLY_NUM
+        elif [ "${NETWORK_MODE}" = "auto" ]; then
+                REPLY=auto
+		read -p "Network mode    (1. always, 2. [AUTO], 3. never): " -i "${MODE}" -e REPLY_NUM
+        elif [ "${NETWORK_MODE}" = "never" ]; then
+                REPLY=never
+		read -p "Network mode    (1. always, 2. auto, 3. [NEVER]): " -i "${MODE}" -e REPLY_NUM
+        else
+                echo "Something wrong here, exiting..."
+                exit 1
+        fi
+
+        if [ "${REPLY_NUM}" = "" ]; then
+                REPLY=${NETWORK_MODE}
+        else
+                # check for valid reply
+                if [[ ${REPLY_NUM} -eq 1  || ${REPLY_NUM} -eq 2 || ${REPLY_NUM} -eq 3 ]]; then              
+                        REPLY=$(f_tr_number_mode ${REPLY_NUM})
+                else
+                        echo "Invalid reply, skipping..."
+                fi
+        fi
+
+
+	#
+        # If changed, set via boinccmd
+	#
         if [ ! ${REPLY} == ${NETWORK_MODE} ]; then
                 ${BOINCCMD} --set_network_mode ${REPLY}
         fi
@@ -552,8 +670,16 @@ update_ncpus() {
         INSTANCE_DIR=boinc_${INSTANCE_PORT}
 
         ncpus=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml | awk '/ncpu/ { print $2 }' );
-        read -p "New ncpus:                            " -i "${ncpus}" -e REPLY
-        sed -i "s/<ncpus>$ncpus/<ncpus>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml
+        printf "%-${COLUMNWIDTH}s" "ncpus"
+        read -i "${ncpus}" -e REPLY
+	if [ $(grep ncpu ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml) ]; then 
+		# ncpus exists in cc_config.xml
+        	sed -i "s/<ncpus>$ncpus/<ncpus>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml
+	else 
+		# ncpus doesn't exist in cc_config.xml
+		# will add it directly after <options> with choosen value
+		sed -i '/<options>/a <ncpus>4</cpus>' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml; 
+	fi
 }
 
 update_max_ncpus_pct() {
@@ -566,7 +692,8 @@ update_max_ncpus_pct() {
 		prefs_override_file=global_prefs.xml
 	fi
 	max_ncpus_pct=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/max_ncpus_pct/ { print $2"/1" }' | bc ); 
-	read -p "New max_ncpus_pct:                    " -i "${max_ncpus_pct}" -e REPLY
+	printf "%-${COLUMNWIDTH}s" "Maximum CPU %"
+	read -i "${max_ncpus_pct}" -e REPLY
 	sed -i "s/<max_ncpus_pct>$max_ncpus_pct/<max_ncpus_pct>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}	
 }
 
@@ -580,8 +707,8 @@ update_work_buf_min_days() {
                 prefs_override_file=global_prefs.xml
         fi
         work_buf_min_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_min_days/ { print $2 }' );
-        read -p "New work_buf_min_days:                " -i "${work_buf_min_days}" -e REPLY
-        #sed -i "s/<work_buf_min_days>$work_buf_min_days/<work_buf_min_days>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
+        printf "%-${COLUMNWIDTH}s" "Minimum work buffer"
+        read -i "${work_buf_min_days}" -e REPLY
 	sed -i "s/<work_buf_min_days>.*/<work_buf_min_days>$REPLY<\/work_buf_min_days>/"  ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
 }
 
@@ -595,7 +722,8 @@ update_work_buf_additional_days() {
                 prefs_override_file=global_prefs.xml
         fi
         work_buf_additional_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_additional_days/ { print $2 }' );
-        read -p "New work_buf_additional_days:         " -i "${work_buf_additional_days}" -e REPLY
+        printf "%-${COLUMNWIDTH}s" "Additional work buffer"
+        read -i "${work_buf_additional_days}" -e REPLY
 	sed -i "s/<work_buf_additional_days>.*/<work_buf_additional_days>$REPLY<\/work_buf_additional_days>/"  ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
 }
 
@@ -617,7 +745,7 @@ refresh_config() {
 	#cd ${INSTANCE_HOME}/${INSTANCE_DIR}
 
 	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
-	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "${BOINCPWD}
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} ${BOINCPWD}"
 
         ${BOINCCMD} --read_cc_config && echo "Refreshed cc_config!";
         ${BOINCCMD} --read_global_prefs_override && echo "Refreshed global_prefs_override!";
