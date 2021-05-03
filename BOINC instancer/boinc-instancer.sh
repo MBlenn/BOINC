@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# 20210320
+# 20210501
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -113,14 +113,17 @@ start_boinc() {
 		if [[ $? == "0" ]]; then 
 			echo "boinc_${INSTANCE_PORT} already running, not starting again";
 			echo
-        		${FILENAME} -l
+                        instance_list_header
+                        list_instance $1
 		else
         		echo "Starting BOINC instance ${INSTANCE_PORT}"
         		boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started (RC=$?), sleeping 5 seconds."
         		sleep 5
         		# print overview
         		echo;
-			${FILENAME} -l
+        		instance_list_header
+        		list_instance boinc_${INSTANCE_PORT}
+
 		fi
         fi
 }
@@ -145,6 +148,7 @@ f_stop_boinc() {
         		echo "Stopping BOINC instance ${INSTANCE_PORT}"
         		boinccmd --host localhost:${INSTANCE_PORT} --quit 
 			RC=$?
+			sleep 2
 			if [[ ${RC} == "0" ]]; then
 				echo "Stopped (RC=$?)"
 			else
@@ -152,37 +156,126 @@ f_stop_boinc() {
 				kill ${PID}
 			fi
 
-			#cd ${CDIR}
-        		# print overview
-        		#echo;
-  			#${FILENAME} -l
-
+			instance_list_header
+			list_instance boinc_${INSTANCE_PORT}
 		else
 			echo "Instance boinc_${INSTANCE_PORT} is not running"
 		fi
 	fi
 }
 
+list_instance() {
+	INSTANCE_DIR=$1
+        INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }');
+        printf "%-12s" "$INSTANCE_DIR"
+        if [[ $(ps -ef | grep -v grep | grep "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}") || $(ps -ef | grep -v grep | grep "allow_remote_gui_rpc --gui_rpc_port ${INSTANCE_PORT}") || ${INSTANCE_PORT} == "31416" ]]; then
+		cd ${INSTANCE_HOME}/${INSTANCE_DIR}
+                if [[ ${INSTANCE_PORT} == "31416" ]]; then
+			PID=$(ps -ef | grep -v grep | grep /usr/bin/boinc | awk '{ print $2 }' | head -1)
+                        printf "%7s" "$PID";
+                elif [[ ${INSTANCE_PORT} -lt 10000 ]]; then
+                        PID=$(ps -ef | grep -v grep | grep "allow_remote_gui_rpc --gui_rpc_port ${INSTANCE_PORT}" | awk '{ print $2 }')
+                        printf "%7s" "$PID";
+                else
+                        PID=$(ps -ef | grep "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}" | awk '{ print $2 }' | head -1)
+                        printf "%7s" "$PID";
+                fi
+                printf "%9s" "Running"
+                BOINCPWD=$(cat gui_rpc_auth.cfg)
+                if [[ ${BOINCPWD} != "" ]]; then
+                	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
+                        BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} -p ${BOINCPWD} &"
+                else
+                        BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
+                        BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} &"
+                fi
+                RC_CONNCHECK=$(${BOINCCMD} --get_host_info 2>/dev/null 1>/dev/null; echo $?)
+                if [[ $RC_CONNCHECK == "0" ]]; then
+                        NUM_ACTIVE_WU="0"
+
+                        CC_STATUS=$($BOINCCMD --get_cc_status)
+                        TASKS=$($BOINCCMD --get_tasks)
+
+                        CPU_MODE=$(echo "${CC_STATUS}" | awk '/CPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
+                        GPU_MODE=$(echo "${CC_STATUS}" | awk '/GPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
+                        NETWORK_MODE=$(echo "${CC_STATUS}" | awk '/Network status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
+                        NUM_PROJECTS=$(${BOINCCMD} --get_project_status | grep -c "master URL:")
+                        NUM_WUS=$(echo "${TASKS}" | grep -c "WU name")
+                        NUM_DL_WU=$(echo "${TASKS}" | grep -c "state: downloading")
+                        NUM_DL_WU_PEND=$(${BOINCCMD} --get_file_transfers | awk '/direction: download/ { if($2=="download"); getline; getline; print}' | grep -c "xfer active: no")
+                        NUM_ACTIVE_WU=$(echo "${TASKS}" | grep -c "active_task_state: EXECUTING")
+                        NUM_UPL_WU=$(echo "${TASKS}" | grep -c "  state: uploading")
+                        NUM_RTR_WU=$(echo "${TASKS}" | grep -c "ready to report: yes")
+                        NUM_READY_WU=$(echo ${NUM_WUS}-${NUM_ACTIVE_WU}-${NUM_UPL_WU}-${NUM_RTR_WU} |bc)
+                        NCPUS=$(awk -F"<|>" '/ncpus/ {print $3 }' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml)
+
+                        if [ -f ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ] ; then
+                                BUFFER=$(awk -F"<|>" '/work_buf_min_days|work_buf_additional_days/ { print sprintf("%.1f",$3) }' ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml | xargs | sed 's/ /\//g')
+                                CPUpct=$(awk -F"<|>" '/max_ncpus_pct/ { print sprintf("%.1f",$3) }' ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml)
+                        elif [ -f ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then
+                                BUFFER=$(awk -F"<|>" '/work_buf_min_days|work_buf_additional_days/ { print sprintf("%.1f",$3) }' ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml | xargs | sed 's/ /\//g')
+                                CPUpct=$(awk -F"<|>" '/max_ncpus_pct/ { print sprintf("%.1f",$3) }' ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml | head -1)
+                        fi
+                        printf "%6s" "${CPU_MODE}";
+                        printf "%5s" "${GPU_MODE}";
+                        printf "%5s" "${NETWORK_MODE}";
+                        printf "%5s" "${NCPUS}";
+                        printf "%6s" "${CPUpct}";
+                        printf "%9s" "${BUFFER}";
+                        printf "%4s" "${NUM_PROJECTS}"
+                        printf "%5s" "${NUM_WUS}"
+                        printf "%6s" "${NUM_READY_WU}"
+                        printf "%4s" "${NUM_DL_WU}"
+                        if [ ${NUM_DL_WU_PEND} -gt "0" ]; then printf "%1s" "!"; else printf "%1s" " "; fi
+                        printf "%4s" "${NUM_ACTIVE_WU}"
+                        printf "%5s" "${NUM_UPL_WU}"
+                        printf "%5s" "${NUM_RTR_WU}"
+                        printf "%-10s" " $BOINCMGR"
+                        echo
+
+                elif [[ $RC_CONNCHECK == "1" ]]; then
+                        if [ -f gui_rpc_auth.cfg ]; then
+                                echo " Unreachable, gui_rpc_auth.cfg exists with passwd ${BOINCPWD}. Try restarting BOINC. "
+                        else
+                                echo " Running but unreachable"
+                        fi
+
+                fi
+	else
+		printf "%7s" "";
+		printf "%9s" "Down"
+		echo
+	fi
+}
+
+instance_list_header() {
+        printf "%-12s" "INSTANCE";
+        printf "%7s" "PID";
+        printf "%9s" "State";
+        printf "%6s" "CPU";
+        printf "%5s" "GPU";
+        printf "%5s" "NET";
+        printf "%5s" "NCPU";
+        printf "%6s" " CPU%";
+        printf "%9s" "BUFFER";
+        printf "%4s" "PRJ";
+        printf "%5s" "WUs";
+        printf "%6s" "READY"
+        printf "%4s" "DL";
+        printf "%1s" "*";
+        printf "%4s" "ACT";
+        printf "%5s" "UPL";
+        printf "%5s" "RTR";
+        printf "%-70s" " boincmgr call"
+        echo
+}
+ 
 instance_list() {
-	printf "%-12s" "INSTANCE";
-	printf "%7s" "PID";
-	printf "%9s" "State";
-	printf "%6s" "CPU";
-	printf "%5s" "GPU";
-	printf "%5s" "NET";
-	printf "%5s" "NCPU";
-	printf "%6s" " CPU%";
-	printf "%9s" "BUFFER";
-	printf "%4s" "PRJ";
-	printf "%5s" "WUs";
-	printf "%6s" "READY"
-	printf "%4s" "DL";
-	printf "%1s" "*";
-	printf "%4s" "ACT";
-	printf "%5s" "UPL";
-	printf "%5s" "RTR";
-	printf "%-70s" " boincmgr call"
-	echo
+	#
+	# Print header
+	#
+	instance_list_header
+
 	TOTAL_WU=0
 	TOTAL_READY=0
 	TOTAL_DL=0
@@ -190,96 +283,25 @@ instance_list() {
 	TOTAL_UPL=0
 	TOTAL_RTR=0
 
+	#
+	# Cycle through all instances and display them via list_instace
+	#	
 	for INSTANCE_DIR in $(ls ${INSTANCE_HOME} | egrep "boinc_[$BOINC_PORT_RANGE]"); do 
-		INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }'); 
-		printf "%-12s" "$INSTANCE_DIR"
-		if [[ $(ps -ef | grep -v grep | grep "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}") || $(ps -ef | grep -v grep | grep "allow_remote_gui_rpc --gui_rpc_port ${INSTANCE_PORT}") || ${INSTANCE_PORT} == "31416" ]]; then
-			cd ${INSTANCE_HOME}/${INSTANCE_DIR}
-			if [[ ${INSTANCE_PORT} == "31416" ]]; then
-				PID=$(ps -ef | grep -v grep | grep /usr/bin/boinc | awk '{ print $2 }' | head -1)
-				printf "%7s" "$PID";
-			elif [[ ${INSTANCE_PORT} -lt 10000 ]]; then
-				PID=$(ps -ef | grep -v grep | grep "allow_remote_gui_rpc --gui_rpc_port ${INSTANCE_PORT}" | awk '{ print $2 }')
-				printf "%7s" "$PID";
-			else
-				PID=$(ps -ef | grep "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}" | awk '{ print $2 }' | head -1) 
-				printf "%7s" "$PID";
-			fi
-			printf "%9s" "Running"
-        		BOINCPWD=$(cat gui_rpc_auth.cfg)
-        		if [[ ${BOINCPWD} != "" ]]; then
-                		BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
-				BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} -p ${BOINCPWD} &"
-        		else
-                		BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
-				BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} &"
-        		fi
-			RC_CONNCHECK=$(${BOINCCMD} --get_host_info 2>/dev/null 1>/dev/null; echo $?)
-			if [[ $RC_CONNCHECK == "0" ]]; then
-				NUM_ACTIVE_WU="0"
-				
-				CC_STATUS=$($BOINCCMD --get_cc_status)
-				TASKS=$($BOINCCMD --get_tasks)
-				
-				CPU_MODE=$(echo "${CC_STATUS}" | awk '/CPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
-				GPU_MODE=$(echo "${CC_STATUS}" | awk '/GPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
-				NETWORK_MODE=$(echo "${CC_STATUS}" | awk '/Network status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
-				NUM_PROJECTS=$(${BOINCCMD} --get_project_status | grep -c "master URL:")
-				NUM_WUS=$(echo "${TASKS}" | grep -c "WU name")
-				NUM_DL_WU=$(echo "${TASKS}" | grep -c "state: downloading")
-				NUM_DL_WU_PEND=$(${BOINCCMD} --get_file_transfers | awk '/direction: download/ { if($2=="download"); getline; getline; print}' | grep -c "xfer active: no")
-				NUM_ACTIVE_WU=$(echo "${TASKS}" | grep -c "active_task_state: EXECUTING")
-				NUM_UPL_WU=$(echo "${TASKS}" | grep -c "  state: uploading")
-				NUM_RTR_WU=$(echo "${TASKS}" | grep -c "ready to report: yes")
-				NUM_READY_WU=$(echo ${NUM_WUS}-${NUM_ACTIVE_WU}-${NUM_UPL_WU}-${NUM_RTR_WU} |bc)
-				NCPUS=$(awk -F"<|>" '/ncpus/ {print $3 }' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml)
+		list_instance ${INSTANCE_DIR}
+		TOTAL_WU=$(echo ${TOTAL_WU}+${NUM_WUS} | bc)
+		TOTAL_READY=$(echo ${TOTAL_READY}+${NUM_READY_WU} | bc)
+		TOTAL_DL=$(echo ${TOTAL_DL}+${NUM_DL_WU} | bc)
+		TOTAL_ACT=$(echo ${TOTAL_ACT}+${NUM_ACTIVE_WU} | bc)
+		TOTAL_UPL=$(echo ${TOTAL_UPL}+${NUM_UPL_WU} | bc)
+		TOTAL_RTR=$(echo ${TOTAL_RTR}+${NUM_RTR_WU} | bc)
 
-				if [ -f ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ] ; then 
-					BUFFER=$(awk -F"<|>" '/work_buf_min_days|work_buf_additional_days/ { print sprintf("%.1f",$3) }' ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml | xargs | sed 's/ /\//g')
-					CPUpct=$(awk -F"<|>" '/max_ncpus_pct/ { print sprintf("%.1f",$3) }' ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml)
-				elif [ -f ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then 
-					BUFFER=$(awk -F"<|>" '/work_buf_min_days|work_buf_additional_days/ { print sprintf("%.1f",$3) }' ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml | xargs | sed 's/ /\//g')
-					CPUpct=$(awk -F"<|>" '/max_ncpus_pct/ { print sprintf("%.1f",$3) }' ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml | head -1)
-				fi
-				printf "%6s" "${CPU_MODE}";
-				printf "%5s" "${GPU_MODE}";
-				printf "%5s" "${NETWORK_MODE}";
-				printf "%5s" "${NCPUS}";
-				printf "%6s" "${CPUpct}";
-				printf "%9s" "${BUFFER}";
-				printf "%4s" "${NUM_PROJECTS}"
-				printf "%5s" "${NUM_WUS}"
-				printf "%6s" "${NUM_READY_WU}"
-				printf "%4s" "${NUM_DL_WU}"
- 				if [ ${NUM_DL_WU_PEND} -gt "0" ]; then printf "%1s" "!"; else printf "%1s" " "; fi
-				printf "%4s" "${NUM_ACTIVE_WU}"
-				printf "%5s" "${NUM_UPL_WU}"
-				printf "%5s" "${NUM_RTR_WU}"
-				printf "%-10s" " $BOINCMGR"
-				echo
-				TOTAL_WU=$(echo ${TOTAL_WU}+${NUM_WUS} | bc)
-				TOTAL_READY=$(echo ${TOTAL_READY}+${NUM_READY_WU} | bc)
-				TOTAL_DL=$(echo ${TOTAL_DL}+${NUM_DL_WU} | bc)
-				TOTAL_ACT=$(echo ${TOTAL_ACT}+${NUM_ACTIVE_WU} | bc)
-				TOTAL_UPL=$(echo ${TOTAL_UPL}+${NUM_UPL_WU} | bc)
-				TOTAL_RTR=$(echo ${TOTAL_RTR}+${NUM_RTR_WU} | bc)
-
-                                NUM_ACTIVE_WU="0"
-				NUM_DL_WU_PEND="0"
-			elif [[ $RC_CONNCHECK == "1" ]]; then
-				if [ -f gui_rpc_auth.cfg ]; then 
-					echo " Unreachable, gui_rpc_auth.cfg exists with passwd ${BOINCPWD}. Try restarting BOINC. "
-				else
-					echo " Running but unreachable"
-				fi
-				
-			fi
-		else
-			printf "%7s" "";
-			printf "%9s" "Down"
-			echo
-		fi
+		NUM_WUS="0"
+		NUM_READY_WU="0"
+		NUM_DL_WU="0"
+                NUM_ACTIVE_WU="0"
+		NUM_DL_WU_PEND="0"
 	done
+
 	printf "%-40s" "Load average: $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg)";
 	printf "%-28s" "";
 	printf "%5s" "${TOTAL_WU}";
@@ -299,7 +321,6 @@ instance_list() {
 		echo " RTR = Ready to report"
 	fi
 	echo
-
 }
 
 create_new_boinc_instance () {
@@ -354,6 +375,7 @@ create_new_boinc_instance () {
 	${FILENAME} -U boinc_${INSTANCE_PORT}
 	${BOINCCMD} --read_cc_config
         cd ${CDIR}
+
 }
 
 setup_environment() {
@@ -444,7 +466,9 @@ delete_instance() {
 	printf "deleting ${INSTANCE_DIR} - "
 	rm -rf ${INSTANCE_DIR} && echo "OK" || echo "Unsuccessful"
 	echo
-	${FILENAME} -l	
+
+        instance_list_header
+        list_instance boinc_${INSTANCE_PORT}
 }
 
 choose_delete_instance() {
@@ -499,7 +523,8 @@ update_prefs() {
 	echo
         refresh_config ${INSTANCE_DIR}
 	echo
-	#${FILENAME} -l | egrep "INSTANCE|${INSTANCE_DIR}"
+        instance_list_header
+        list_instance boinc_${INSTANCE_DIR}
 }
 
 f_tr_mode_number() {
@@ -678,7 +703,7 @@ update_ncpus() {
 	else 
 		# ncpus doesn't exist in cc_config.xml
 		# will add it directly after <options> with choosen value
-		sed -i '/<options>/a <ncpus>4</cpus>' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml; 
+		sed -i '/<options>/a <ncpus>4</ncpus>' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml; 
 	fi
 }
 
@@ -742,8 +767,6 @@ refresh_config() {
 	INSTANCE_DIR=$1
         INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }');
 
-	#cd ${INSTANCE_HOME}/${INSTANCE_DIR}
-
 	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
 	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} ${BOINCPWD}"
 
@@ -770,7 +793,7 @@ stop_all() {
 # done defining functions
 ####################################
 
-while getopts lndreschutD:S:T:E:U: opt
+while getopts lndreschutD:L:S:T:E:U: opt
 do
    case $opt in
         l) instance_list;;
@@ -782,6 +805,7 @@ do
         u) update_prefs;;
 	t) stop_all;;
         E) setup_environment $OPTARG;;
+	L) list_instance $OPTARG;;
         S) start_boinc $OPTARG;;
         T) f_stop_boinc $OPTARG;;
         D) delete_instance $OPTARG;;
