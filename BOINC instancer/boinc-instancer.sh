@@ -527,11 +527,29 @@ update_prefs() {
 	set_cpu_mode ${INSTANCE_DIR}
 	set_gpu_mode ${INSTANCE_DIR}
 	set_network_mode ${INSTANCE_DIR}
+	update_purpose_file ${INSTANCE_DIR}
 	echo
         refresh_config ${INSTANCE_DIR}
 	echo
         instance_list_header
         list_instance boinc_${INSTANCE_PORT}
+}
+
+update_purpose_file() {
+	#
+	# Add short description to each instance to not confuse them
+	#
+        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        INSTANCE_DIR="boinc_${INSTANCE_PORT}"
+
+        if [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/instance_purpose ]; then
+		INSTANCE_PURPOSE=$(cat ${INSTANCE_HOME}/${INSTANCE_DIR}/instance_purpose)
+	else
+		touch ${INSTANCE_HOME}/${INSTANCE_DIR}/instance_purpose
+		INSTANCE_PURPOSE=""
+        fi
+        read -p "Instance purpose                                  " -i "${INSTANCE_PURPOSE}" -e REPLY
+	echo "${REPLY}" > ${INSTANCE_HOME}/${INSTANCE_DIR}/instance_purpose
 }
 
 f_tr_mode_number() {
