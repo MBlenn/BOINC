@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# 20210501
+# 20210505
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -114,7 +114,7 @@ start_boinc() {
 			echo "boinc_${INSTANCE_PORT} already running, not starting again";
 			echo
                         instance_list_header
-                        list_instance $1
+                        list_instance ${INSTANCE_PORT}
 		else
         		echo "Starting BOINC instance ${INSTANCE_PORT}"
         		boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started (RC=$?), sleeping 5 seconds."
@@ -167,6 +167,7 @@ f_stop_boinc() {
 list_instance() {
 	INSTANCE_DIR=$1
         INSTANCE_PORT=$(echo $INSTANCE_DIR | awk -F"_" '{ print $2 }');
+	INSTANCE_PURPOSE=""
         printf "%-12s" "$INSTANCE_DIR"
         if [[ $(ps -ef | grep -v grep | grep "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}") || $(ps -ef | grep -v grep | grep "allow_remote_gui_rpc --gui_rpc_port ${INSTANCE_PORT}") || ${INSTANCE_PORT} == "31416" ]]; then
 		cd ${INSTANCE_HOME}/${INSTANCE_DIR}
@@ -184,11 +185,12 @@ list_instance() {
                 BOINCPWD=$(cat gui_rpc_auth.cfg)
                 if [[ ${BOINCPWD} != "" ]]; then
                 	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} --passwd ${BOINCPWD} "
-                        BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} -p ${BOINCPWD} &"
+                #        BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} -p ${BOINCPWD} &"
                 else
                         BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
-                        BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} &"
+                #        BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} &"
                 fi
+		BOINCMGR=" localhost:${INSTANCE_PORT} "
                 RC_CONNCHECK=$(${BOINCCMD} --get_host_info 2>/dev/null 1>/dev/null; echo $?)
                 if [[ $RC_CONNCHECK == "0" ]]; then
                         NUM_ACTIVE_WU="0"
@@ -209,6 +211,9 @@ list_instance() {
                         NUM_READY_WU=$(echo ${NUM_WUS}-${NUM_ACTIVE_WU}-${NUM_UPL_WU}-${NUM_RTR_WU} |bc)
                         NCPUS=$(awk -F"<|>" '/ncpus/ {print $3 }' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml)
 
+			if [ -f ${INSTANCE_HOME}/${INSTANCE_DIR}/instance_purpose ]; then
+				INSTANCE_PURPOSE=$(cat ${INSTANCE_HOME}/${INSTANCE_DIR}/instance_purpose)
+			fi
                         if [ -f ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ] ; then
                                 BUFFER=$(awk -F"<|>" '/work_buf_min_days|work_buf_additional_days/ { print sprintf("%.1f",$3) }' ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml | xargs | sed 's/ /\//g')
                                 CPUpct=$(awk -F"<|>" '/max_ncpus_pct/ { print sprintf("%.1f",$3) }' ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml)
@@ -230,7 +235,8 @@ list_instance() {
                         printf "%4s" "${NUM_ACTIVE_WU}"
                         printf "%5s" "${NUM_UPL_WU}"
                         printf "%5s" "${NUM_RTR_WU}"
-                        printf "%-10s" " $BOINCMGR"
+                        printf "%-17s" "${BOINCMGR}"
+			printf "%-30s" "${INSTANCE_PURPOSE}"
                         echo
 
                 elif [[ $RC_CONNCHECK == "1" ]]; then
@@ -266,7 +272,8 @@ instance_list_header() {
         printf "%4s" "ACT";
         printf "%5s" "UPL";
         printf "%5s" "RTR";
-        printf "%-70s" " boincmgr call"
+        printf "%-17s" " boincmgr"
+        printf "%-30s" "purpose"
         echo
 }
  
@@ -524,7 +531,7 @@ update_prefs() {
         refresh_config ${INSTANCE_DIR}
 	echo
         instance_list_header
-        list_instance boinc_${INSTANCE_DIR}
+        list_instance boinc_${INSTANCE_PORT}
 }
 
 f_tr_mode_number() {
@@ -695,8 +702,7 @@ update_ncpus() {
         INSTANCE_DIR=boinc_${INSTANCE_PORT}
 
         ncpus=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml | awk '/ncpu/ { print $2 }' );
-        printf "%-${COLUMNWIDTH}s" "ncpus"
-        read -i "${ncpus}" -e REPLY
+        read -p "ncpus                                             " -i "${ncpus}" -e REPLY
 	if [ $(grep ncpu ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml) ]; then 
 		# ncpus exists in cc_config.xml
         	sed -i "s/<ncpus>$ncpus/<ncpus>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/cc_config.xml
@@ -717,8 +723,7 @@ update_max_ncpus_pct() {
 		prefs_override_file=global_prefs.xml
 	fi
 	max_ncpus_pct=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/max_ncpus_pct/ { print $2"/1" }' | bc ); 
-	printf "%-${COLUMNWIDTH}s" "Maximum CPU %"
-	read -i "${max_ncpus_pct}" -e REPLY
+	read -p "Maximum CPU %                                     " -i "${max_ncpus_pct}" -e REPLY
 	sed -i "s/<max_ncpus_pct>$max_ncpus_pct/<max_ncpus_pct>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}	
 }
 
@@ -732,8 +737,7 @@ update_work_buf_min_days() {
                 prefs_override_file=global_prefs.xml
         fi
         work_buf_min_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_min_days/ { print $2 }' );
-        printf "%-${COLUMNWIDTH}s" "Minimum work buffer"
-        read -i "${work_buf_min_days}" -e REPLY
+        read -p "Minimum work buffer                               " -i "${work_buf_min_days}" -e REPLY
 	sed -i "s/<work_buf_min_days>.*/<work_buf_min_days>$REPLY<\/work_buf_min_days>/"  ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
 }
 
@@ -747,8 +751,7 @@ update_work_buf_additional_days() {
                 prefs_override_file=global_prefs.xml
         fi
         work_buf_additional_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_additional_days/ { print $2 }' );
-        printf "%-${COLUMNWIDTH}s" "Additional work buffer"
-        read -i "${work_buf_additional_days}" -e REPLY
+        read -p "Additional work buffer                            " -i "${work_buf_additional_days}" -e REPLY
 	sed -i "s/<work_buf_additional_days>.*/<work_buf_additional_days>$REPLY<\/work_buf_additional_days>/"  ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
 }
 
