@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# 20210505
+# 20210515
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -226,7 +226,7 @@ list_instance() {
                         printf "%5s" "${NETWORK_MODE}";
                         printf "%5s" "${NCPUS}";
                         printf "%6s" "${CPUpct}";
-                        printf "%9s" "${BUFFER}";
+                        printf "%10s" "${BUFFER}";
                         printf "%4s" "${NUM_PROJECTS}"
                         printf "%5s" "${NUM_WUS}"
                         printf "%6s" "${NUM_READY_WU}"
@@ -263,7 +263,7 @@ instance_list_header() {
         printf "%5s" "NET";
         printf "%5s" "NCPU";
         printf "%6s" " CPU%";
-        printf "%9s" "BUFFER";
+        printf "%10s" "BUFFER";
         printf "%4s" "PRJ";
         printf "%5s" "WUs";
         printf "%6s" "READY"
@@ -309,8 +309,9 @@ instance_list() {
 		NUM_DL_WU_PEND="0"
 	done
 
-	printf "%-40s" "Load average: $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg)";
-	printf "%-28s" "";
+	TIME=$(date "+%H:%M:%S")
+	printf "%-40s" "Load average (@${TIME}): $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg)";
+	printf "%-27s" "";
 	printf "%5s" "${TOTAL_WU}";
 	printf "%6s" "${TOTAL_READY}";
 	printf "%4s" "${TOTAL_DL}";
