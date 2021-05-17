@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# 20210515
+# 20210517
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -311,7 +311,7 @@ instance_list() {
 
 	TIME=$(date "+%H:%M:%S")
 	printf "%-40s" "Load average (@${TIME}): $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg)";
-	printf "%-27s" "";
+	printf "%-26s" "";
 	printf "%5s" "${TOTAL_WU}";
 	printf "%6s" "${TOTAL_READY}";
 	printf "%4s" "${TOTAL_DL}";
@@ -459,7 +459,7 @@ delete_instance() {
         cd ${INSTANCE_DIR}
 
         BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
-	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} $BOINCPWD"
+	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} ${BOINCPWD}"
 
 	for MASTER_URL in $(${BOINCCMD} --get_project_status | awk '/master URL:/ { print $3 }'); do
 		echo "Detaching ${MASTER_URL}"	
