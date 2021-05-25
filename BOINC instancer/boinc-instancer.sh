@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# 20210517
+# v20210525
 #
 
 INSTALL_ROOT=/opt/boinc
@@ -18,10 +18,12 @@ help() {
 	echo "-r - refresh all config files"
 	echo "-e - enable minimal local environment, no config files" 
 	echo "-s - start all BOINC instances"
-	echo "-u - update preferences"
+	echo "-u - update boinc-instancer from Github"
+	#echo "-u - update preferences"
 	echo "-t - terminate (stop) all instances"
 	echo "-E \$ARG - enable local environment, load config from file/URL" 
 	echo "-S \$ARG - start specified instance"
+	echo "-R \$ARG - restart specified instance"
 	echo "-T \$ARG - stop/terminate specified instance"
 	echo "-U \$ARM - update preferences of specified instance"
 	echo "-D \$ARG - delete specified instance (detach projects, remove instance)"
@@ -102,6 +104,7 @@ f_download_config() {
 }
 
 start_boinc() {
+		SLEEP=5
         if [[ $1 == "boinc_31416" || $1 == "31416" ]]; then
                 echo "Refusing to start the default instance, use proper OS commands"
                 return 1
@@ -117,8 +120,8 @@ start_boinc() {
                         list_instance ${INSTANCE_PORT}
 		else
         		echo "Starting BOINC instance ${INSTANCE_PORT}"
-        		boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started (RC=$?), sleeping 5 seconds."
-        		sleep 5
+        		boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && printf "Started (RC=$?), sleeping ${SLEEP} seconds"
+			sleep_counter ${SLEEP}
         		# print overview
         		echo;
         		instance_list_header
@@ -310,11 +313,11 @@ instance_list() {
 	done
 
 	TIME=$(date "+%H:%M:%S")
-	printf "%-40s" "Load average (@${TIME}): $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg)";
-	printf "%-26s" "";
+	printf "%-64s" "Load average (@${TIME}): $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg)";
 	printf "%5s" "${TOTAL_WU}";
 	printf "%6s" "${TOTAL_READY}";
 	printf "%4s" "${TOTAL_DL}";
+        printf "%1s" "*";
 	printf "%5s" "${TOTAL_ACT}";
 	printf "%5s" "${TOTAL_UPL}";
 	printf "%5s" "${TOTAL_RTR}";
@@ -810,12 +813,81 @@ stop_all() {
         done
 }
 
+sleep_counter() {
+	INTERVAL=$1
+        printf " - "
+        COUNT=0
+        while [[ ${COUNT} -lt ${INTERVAL} ]]; do
+		COUNT=$((${COUNT}+1))
+                printf "${COUNT} "
+                sleep 1
+        done
+	echo
+
+}
+restart_boinc() {
+        INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+        INSTANCE_DIR="boinc_${INSTANCE_PORT}"
+	SLEEP=5
+
+	check_pid_running() {
+		ps -ef | grep -v grep | grep -q "\-\-dir ${INSTANCE_HOME}/${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}" && return 0
+		ps -ef | grep -v grep | grep -q "allow_remote_gui_rpc --gui_rpc_port ${INSTANCE_PORT}" && return 0
+		return 1
+	}
+
+
+	check_pid_running
+	RC=$?
+
+        if [[ ${RC} -eq 0 ]]; then
+		echo "${INSTANCE_DIR} is running, going to stop it:"
+
+		f_stop_boinc ${INSTANCE_DIR}
+		printf "Will sleep ${SLEEP} seconds"
+		sleep_counter ${SLEEP}
+
+		echo
+		start_boinc ${INSTANCE_DIR}
+
+	else
+		echo "${INSTANCE_DIR} is not running, will start it:"
+		start_boinc ${INSTANCE_DIR}
+	fi
+}
+
+update_instancer() {
+	#
+	# once the boinc-instancer runs under non-root users, this can be extended to check existing ownerships vs. the executing user
+	# for now only root can update the script
+	#
+	ID=$(id -u)
+	if [[ ${ID} -ne 0 ]]; then
+		echo "You need to be root to perform this operation. aborting..."
+	else
+		instancer_download="https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20instancer/boinc-instancer.sh"
+		wget -O ${FILENAME}_tmp ${instancer_download}
+		VERSION_OLD=$(awk '/^# v20/ { print $2 }' ${FILENAME} | sed 's/v//')
+		VERSION_NEW=$(awk '/^# v20/ { print $2 }' ${FILENAME}_tmp | sed 's/v//')
+		echo "OLD: $VERSION_OLD"
+		echo "NEW: $VERSION_NEW"
+
+		if [[ $VERSION_NEW -gt $VERSION_OLD ]]; then
+			chmod +x ${FILENAME}_tmp
+			# mv ${FILENAME}_tmp ${FILENAME}
+		else
+			echo "Local is same or newer version than on the repo!"
+		fi
+			
+	fi
+}
+
 
 ####################################
 # done defining functions
 ####################################
 
-while getopts lndreschutD:L:S:T:E:U: opt
+while getopts lndreschutD:L:R:S:T:E:U: opt
 do
    case $opt in
         l) instance_list;;
@@ -824,11 +896,13 @@ do
         r) refresh_config_all;;
         e) setup_environment;;
         s) start_all;;
-        u) update_prefs;;
+        #u) update_prefs;;
+	u) update_instancer;;
 	t) stop_all;;
         E) setup_environment $OPTARG;;
 	L) list_instance $OPTARG;;
         S) start_boinc $OPTARG;;
+        R) restart_boinc $OPTARG;;
         T) f_stop_boinc $OPTARG;;
         D) delete_instance $OPTARG;;
         U) update_prefs_w_input $OPTARG;;
