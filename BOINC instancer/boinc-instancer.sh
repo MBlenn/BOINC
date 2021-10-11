@@ -1,8 +1,15 @@
 #!/bin/bash
 # 
+# v20211011
+#	- run boinc under non root user
+#	- enable bash shell for boinc user if not already done
+#	- more resiliant handling of http/https URLs for config download
+#
 # v20210525
 #
 
+BOINCUSER=boinc
+BOINCGROUP=boinc
 INSTALL_ROOT=/opt/boinc
 INSTANCE_HOME=${INSTALL_ROOT}/instance_homes
 CONFIG_REPOSITORY=${INSTALL_ROOT}/config_repo
@@ -19,7 +26,6 @@ help() {
 	echo "-e - enable minimal local environment, no config files" 
 	echo "-s - start all BOINC instances"
 	echo "-u - update boinc-instancer from Github"
-	#echo "-u - update preferences"
 	echo "-t - terminate (stop) all instances"
 	echo "-E \$ARG - enable local environment, load config from file/URL" 
 	echo "-S \$ARG - start specified instance"
@@ -64,6 +70,7 @@ f_new_remote_hosts() {
 		NUM=$((NUM+1)); 
 	done
 }
+
 f_get_boincpwd() {
 	GUI_RPC_AUTH=$1
 	if [ "$(basename -- ${GUI_RPC_AUTH})" == "gui_rpc_auth.cfg" ] ; then
@@ -77,12 +84,14 @@ f_get_boincpwd() {
 	fi
 	return 1
 }
+
 f_download_config() {
-	if [[ "$1" =~ "http://" ]]; then
+	if [[ "$@" =~ "http://" || "$@" =~ "https://" ]]; then
 		#
 		# Download quietly with wget, save under static name
 		#
-		wget -q $1 -O ${CONFIG_REPOSITORY}/instancer_config.tar 
+		echo wget "$@" -O ${CONFIG_REPOSITORY}/instancer_config.tar 
+		wget "$@" -O ${CONFIG_REPOSITORY}/instancer_config.tar 
 		if [[ $? == "0" ]]; then
 			echo "Saved into ${CONFIG_REPOSITORY}/instancer_config.tar" 
 			ls -ld ${CONFIG_REPOSITORY}/instancer_config.tar
@@ -103,8 +112,24 @@ f_download_config() {
 	fi
 }
 
+f_check_change_shell() {
+	#
+	# If we can't get the users name back from whoami, their shell is usually nologin. We'll change it to bash
+	#
+	if [[ $(su - ${BOINCUSER} -c 'whoami') != ${BOINCUSER} ]]; then 	
+		echo "Changing login shell for user ${BOINCUSER}"; 
+		printf "Current shell defined in /etc/passwd: "; 
+		awk -F":" -v user=${BOINCUSER} '{ if($1==user) print $7 }' /etc/passwd; 
+		usermod --shell /bin/bash ${BOINCUSER}; 
+		printf "New shell defined in /etc/passwd: "; 
+		awk -F":" -v user=${BOINCUSER} '{ if($1==user) print $7 }' /etc/passwd; 
+	else 
+		echo "Shell of ${BOINCUSER} is fine, no change needed."; 
+	fi
+}
+
 start_boinc() {
-		SLEEP=5
+	SLEEP=5
         if [[ $1 == "boinc_31416" || $1 == "31416" ]]; then
                 echo "Refusing to start the default instance, use proper OS commands"
                 return 1
@@ -119,8 +144,12 @@ start_boinc() {
                         instance_list_header
                         list_instance ${INSTANCE_PORT}
 		else
+			# make sure ownership of all files in ${INSTANCE_DIR} is correct
+
+			chown -R ${BOINCUSER}:${BOINCGROUP} ${INSTANCE_DIR}
+
         		echo "Starting BOINC instance ${INSTANCE_PORT}"
-        		boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && printf "Started (RC=$?), sleeping ${SLEEP} seconds"
+        		su - ${BOINCUSER} -c "boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}" && printf "Started (RC=$?), sleeping ${SLEEP} seconds"
 			sleep_counter ${SLEEP}
         		# print overview
         		echo;
@@ -294,22 +323,24 @@ instance_list() {
 	TOTAL_RTR=0
 
 	#
-	# Cycle through all instances and display them via list_instace
+	# Cycle through all instances and display them via list_instance
 	#	
 	for INSTANCE_DIR in $(ls ${INSTANCE_HOME} | egrep "boinc_[$BOINC_PORT_RANGE]"); do 
-		list_instance ${INSTANCE_DIR}
-		TOTAL_WU=$(echo ${TOTAL_WU}+${NUM_WUS} | bc)
-		TOTAL_READY=$(echo ${TOTAL_READY}+${NUM_READY_WU} | bc)
-		TOTAL_DL=$(echo ${TOTAL_DL}+${NUM_DL_WU} | bc)
-		TOTAL_ACT=$(echo ${TOTAL_ACT}+${NUM_ACTIVE_WU} | bc)
-		TOTAL_UPL=$(echo ${TOTAL_UPL}+${NUM_UPL_WU} | bc)
-		TOTAL_RTR=$(echo ${TOTAL_RTR}+${NUM_RTR_WU} | bc)
-
-		NUM_WUS="0"
-		NUM_READY_WU="0"
-		NUM_DL_WU="0"
+                NUM_WUS="0"
+                NUM_READY_WU="0"
                 NUM_ACTIVE_WU="0"
-		NUM_DL_WU_PEND="0"
+                NUM_DL_WU="0"
+                NUM_DL_WU_PEND="0"
+		NUM_UPL_WU="0"
+		NUM_RTR_WU="0"
+
+		list_instance ${INSTANCE_DIR}
+		TOTAL_WU=$((${TOTAL_WU}+${NUM_WUS}))
+		TOTAL_READY=$((${TOTAL_READY}+${NUM_READY_WU}))
+		TOTAL_DL=$((${TOTAL_DL}+${NUM_DL_WU}))
+		TOTAL_ACT=$((${TOTAL_ACT}+${NUM_ACTIVE_WU}))
+		TOTAL_UPL=$((${TOTAL_UPL}+${NUM_UPL_WU}))
+		TOTAL_RTR=$((${TOTAL_RTR}+${NUM_RTR_WU}))
 	done
 
 	TIME=$(date "+%H:%M:%S")
@@ -322,6 +353,9 @@ instance_list() {
 	printf "%5s" "${TOTAL_UPL}";
 	printf "%5s" "${TOTAL_RTR}";
 
+	#
+	# Display explanations for certain states
+	#
 	if [[ ! $0 =~ ${PARENT_COMMAND} ]]; then
 		echo
 		echo
@@ -335,6 +369,7 @@ instance_list() {
 }
 
 create_new_boinc_instance () {
+	SLEEP=5
 	
 	# find suitable port
 	INSTANCE_PORT=$(f_new_boinc_next_port)
@@ -367,24 +402,31 @@ create_new_boinc_instance () {
 		fi
 	done
 	
-	#chown
-	chown -R root:root ${INSTANCE_DIR}
+        # make sure ownership of all files in ${INSTANCE_DIR} is correct
+
+        chown -R ${BOINCUSER}:${BOINCGROUP} ${INSTANCE_DIR}
+
 
 	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
 	BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} ${BOINCPWD}"
 
 	# launch new instance
-	boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT} && echo "Started, RC=$?" || return 1
+        echo "Starting BOINC instance ${INSTANCE_PORT}"
+        su - ${BOINCUSER} -c "boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}" && printf "Started (RC=$?), sleeping ${SLEEP} seconds"
 	echo "Created new instance ${INSTANCE_PORT}. Sleeping 5s."
-	sleep 5
+        sleep_counter ${SLEEP}
+
 	${BOINCCMD} --set_host_info BOINC_${INSTANCE_PORT} 
 	${BOINCCMD} --set_run_mode never
+
 	# Start BOINC benchmark, should have finished once the instance is configured
 	${BOINCCMD} --run_benchmarks
 	echo
 	echo "Customize new instance boinc_${INSTANCE_PORT} or confirm defaults with ENTER:"
 	${FILENAME} -U boinc_${INSTANCE_PORT}
 	${BOINCCMD} --read_cc_config
+
+	# jump to directory we have been in before creating the new instance
         cd ${CDIR}
 
 }
@@ -393,7 +435,8 @@ setup_environment() {
 	# 
 	# instancer config should be in $1 when invoked via -E 
 	# 
-	IC_URL=$1
+	IC_URL="$@"
+	echo ${IC_URL}
 	echo "(Re)creating all needed directories..."
 	mkdir -p ${INSTALL_ROOT} && echo "	Created ${INSTALL_ROOT}"
 	mkdir -p ${INSTALL_ROOT}/config_repo && echo "	Created ${INSTALL_ROOT}/config_repo"
@@ -418,7 +461,7 @@ setup_environment() {
 		#
 		# f_download_config downloads the config via wget or copies it from a local/NFS path
 		#
-		f_download_config ${IC_URL}
+		f_download_config "${IC_URL}"
 
 		tar --skip-old-files -xvf instancer_config.tar
 
@@ -434,12 +477,17 @@ setup_environment() {
 	else
 	        # create remote_hosts.cfg based on gateway in default route
 		printf "Creating new remote_hosts.cfg based on local network config - "
-        	f_new_remote_hosts  && echo "OK"
+        	f_new_remote_hosts && echo "OK"
 		echo
 
 		echo "Copy your gui_rpc_auth.cfg, cc_config.xml and global_prefs_override.xml to ${CONFIG_REPOSITORY}"
 		echo "Copy account config files to ${CONFIG_REPOSITORY}/boinc_accounts"
 	fi
+
+	#
+	# Check whether we can su to ${BOINCUSER}. If not, change shell to bash.
+	#
+	f_check_change_shell
 
 	echo
 }
