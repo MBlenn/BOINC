@@ -1,11 +1,13 @@
 #!/bin/bash
 # 
+# v20211012
+#	- script auto update fixed
 # v20211011
 #	- run boinc under non root user
 #	- enable bash shell for boinc user if not already done
 #	- more resiliant handling of http/https URLs for config download
 #
-# t20210525
+# v20210525
 #
 
 BOINCUSER=boinc
@@ -915,14 +917,14 @@ update_instancer() {
 	else
 		instancer_download="https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20instancer/boinc-instancer.sh"
 		wget -O ${FILENAME}_tmp ${instancer_download}
-		VERSION_OLD=$(awk '/^# v20/ { print $2 }' ${FILENAME} | sed 's/v//')
-		VERSION_NEW=$(awk '/^# v20/ { print $2 }' ${FILENAME}_tmp | sed 's/v//')
+		VERSION_OLD=$(awk '/^# v20/ { print $2 }' ${FILENAME} | sed 's/v//' | head -1)
+		VERSION_NEW=$(awk '/^# v20/ { print $2 }' ${FILENAME}_tmp | sed 's/v//' | head -1)
 		echo "OLD: $VERSION_OLD"
 		echo "NEW: $VERSION_NEW"
 
 		if [[ $VERSION_NEW -gt $VERSION_OLD ]]; then
 			chmod +x ${FILENAME}_tmp
-			# mv ${FILENAME}_tmp ${FILENAME}
+			mv ${FILENAME}_tmp ${FILENAME}
 		else
 			echo "Local is same or newer version than on the repo!"
 		fi
