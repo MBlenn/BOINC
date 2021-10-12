@@ -5,7 +5,7 @@
 #	- enable bash shell for boinc user if not already done
 #	- more resiliant handling of http/https URLs for config download
 #
-# v20210525
+# t20210525
 #
 
 BOINCUSER=boinc
