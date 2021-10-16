@@ -1,5 +1,7 @@
 #!/bin/bash
 # 
+# v20211013
+#	- check/change BOINC user shell in existing deployments as well
 # v20211012
 #	- script auto update fixed
 # v20211011
@@ -125,8 +127,6 @@ f_check_change_shell() {
 		usermod --shell /bin/bash ${BOINCUSER}; 
 		printf "New shell defined in /etc/passwd: "; 
 		awk -F":" -v user=${BOINCUSER} '{ if($1==user) print $7 }' /etc/passwd; 
-	else 
-		echo "Shell of ${BOINCUSER} is fine, no change needed."; 
 	fi
 }
 
@@ -138,6 +138,8 @@ start_boinc() {
 	else
         	INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
         	INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
+
+		f_check_change_shell
 
 		ps -ef | grep -v "$$" | grep -q "dir "${INSTANCE_DIR}
 		if [[ $? == "0" ]]; then 
