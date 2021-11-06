@@ -1,5 +1,5 @@
 #!/bin/bash
-# v20210204
+# v20211106
 
 if [ -z $1 ]; then
 	echo "Please specify results URL for one host";
@@ -32,7 +32,7 @@ cat /dev/null > /tmp/host_details
 OFFSET=0; 
 while [[ $OFFSET -lt $MAXOFFSET ]]; do
 	printf "$OFFSET ";
-	lynx -nomargins -dont_wrap_pre --dump "${URL}results.php?offset=${OFFSET}&hostid=${HOSTID}&state=4&appid=${APPID}" | grep UTC | sed 's/UTC/UTC /g' | egrep -i -v "Aborted|Progress|Redundant|waiting|pending|New"  > /tmp/WU_data.raw;
+	lynx -nomargins -dont_wrap_pre --dump "${URL}results.php?offset=${OFFSET}&hostid=${HOSTID}&state=4&appid=${APPID}" | grep UTC | sed 's/UTC/UTC /g' | egrep -v "Aborted|Progress|Redundant|waiting|pending|New"  > /tmp/WU_data.raw;
 	WCL=$(wc -l /tmp/WU_data.raw | awk '{ print $1 }')
 	if [[ $WCL -eq 0 ]]; then 
 		OFFSET=$MAXOFFSET
