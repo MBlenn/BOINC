@@ -1,5 +1,8 @@
 #!/bin/bash
 # 
+# v20220511
+#    	- use hostname instead of localhost in -l overview, make it easier to work with instances on remote hosts
+#	- fixed wrong offset of total WU counts in overview
 # v20211013
 #	- check/change BOINC user shell in existing deployments as well
 # v20211012
@@ -20,6 +23,7 @@ CONFIG_REPOSITORY=${INSTALL_ROOT}/config_repo
 BOINC_PORT_RANGE="9000-65535"
 PARENT_COMMAND=$(ps -o comm= $PPID)
 FILENAME=$(dirname $(readlink -f $0))/$(basename -- "$0")
+UNAME_N=$(uname -n)
 
 help() {
 	echo "-h - help (this)"
@@ -226,7 +230,7 @@ list_instance() {
                         BOINCCMD="boinccmd --host localhost:${INSTANCE_PORT} "
                 #        BOINCMGR=" boincmgr -m -g ${INSTANCE_PORT} &"
                 fi
-		BOINCMGR=" localhost:${INSTANCE_PORT} "
+		BOINCMGR=" ${UNAME_N}:${INSTANCE_PORT} "
                 RC_CONNCHECK=$(${BOINCCMD} --get_host_info 2>/dev/null 1>/dev/null; echo $?)
                 if [[ $RC_CONNCHECK == "0" ]]; then
                         NUM_ACTIVE_WU="0"
@@ -268,7 +272,7 @@ list_instance() {
                         printf "%6s" "${NUM_READY_WU}"
                         printf "%4s" "${NUM_DL_WU}"
                         if [ ${NUM_DL_WU_PEND} -gt "0" ]; then printf "%1s" "!"; else printf "%1s" " "; fi
-                        printf "%4s" "${NUM_ACTIVE_WU}"
+                        printf "%5s" "${NUM_ACTIVE_WU}"
                         printf "%5s" "${NUM_UPL_WU}"
                         printf "%5s" "${NUM_RTR_WU}"
                         printf "%-17s" "${BOINCMGR}"
@@ -305,7 +309,7 @@ instance_list_header() {
         printf "%6s" "READY"
         printf "%4s" "DL";
         printf "%1s" "*";
-        printf "%4s" "ACT";
+        printf "%5s" "ACT";
         printf "%5s" "UPL";
         printf "%5s" "RTR";
         printf "%-17s" " boincmgr"
@@ -348,7 +352,7 @@ instance_list() {
 	done
 
 	TIME=$(date "+%H:%M:%S")
-	printf "%-64s" "Load average (@${TIME}): $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg)";
+	printf "%-69s" "Load average (@${TIME}): $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg)";
 	printf "%5s" "${TOTAL_WU}";
 	printf "%6s" "${TOTAL_READY}";
 	printf "%4s" "${TOTAL_DL}";
