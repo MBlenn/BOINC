@@ -154,7 +154,6 @@ Load average: 5.68/5.66/5.20                                           51    46 
 As shown above, the script will cycle through all attached projects (here just WCG) and detach from them, then stop BOINC nicely and proceed to remove the instance directory.
 
 ### Limitations
-- starts BOINC instances under root for now (*to be fixed*)
 - won't control default BOINC instance, maybe implement start/stop through system commands
 
 [...]
