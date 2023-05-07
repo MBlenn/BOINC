@@ -1,5 +1,7 @@
 #!/bin/bash
 #
+# v20230507
+#   - -l instance listing now includes memory usage
 # v20230502
 #   - start/stop BOINC default instance as well
 #   - support for device_name in cc_config.xml, requires BOINC 7.18
@@ -363,7 +365,9 @@ instance_list() {
 	done
 
 	TIME=$(date "+%H:%M:%S")
-	printf "%-89s" "Load average (@${TIME}): $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg)";
+	MEMUSE=$(echo "scale=1; $(free | awk '/Mem:/ { print 100"*"$3"/"$2 }')" | bc -l)
+	#printf "%-89s" "Load average (@${TIME}): $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg), Memory: ${MEMUSE}%";
+	printf "%-89s" "time: ${TIME}, load average: $(awk '{ print $1"/"$2"/"$3 }' /proc/loadavg), memory: ${MEMUSE}%";
 	printf "%5s" "${TOTAL_WU}";
 	printf "%6s" "${TOTAL_READY}";
 	printf "%4s" "${TOTAL_DL}";
