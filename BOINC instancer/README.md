@@ -13,11 +13,12 @@ Lets start with the help to get an overview:
 -r - refresh all config files
 -e - enable minimal local environment, no config files
 -s - start all BOINC instances
--u - update preferences
+-u - update boinc-instancer from GitHub
 -t - terminate (stop) all instances
 -E $ARG - enable local environment, load config from .tar file/URL
 -S $ARG - start specified instance
 -T $ARG - stop/terminate specified instance
+-R $ARF - restart specified instance
 -U $ARM - update preferences of specified instance
 -D $ARG - delete specified instance (detach projects, remove instance)
 ```
@@ -153,8 +154,6 @@ Load average: 5.68/5.66/5.20                                           51    46 
 ```
 As shown above, the script will cycle through all attached projects (here just WCG) and detach from them, then stop BOINC nicely and proceed to remove the instance directory.
 
-### Limitations
-- won't control default BOINC instance, maybe implement start/stop through system commands
 
-[...]
+
 **Work in progress!**
