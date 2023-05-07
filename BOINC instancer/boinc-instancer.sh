@@ -31,6 +31,7 @@ BOINC_PORT_RANGE="9000-65535"
 PARENT_COMMAND=$(ps -o comm= $PPID)
 FILENAME=$(dirname $(readlink -f $0))/$(basename -- "$0")
 UNAME_N=$(uname -n)
+LANG=C
 
 help() {
 	echo "-h - help (this)"
