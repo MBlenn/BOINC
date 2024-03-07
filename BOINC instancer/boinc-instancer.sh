@@ -39,6 +39,7 @@ PARENT_COMMAND=$(ps -o comm= $PPID)
 FILENAME=$(dirname $(readlink -f $0))/$(basename -- "$0")
 UNAME_N=$(uname -n)
 LANG=C
+export LANG
 watchInterval=10
 
 help() {
@@ -275,7 +276,7 @@ list_instance() {
             CPU_MODE=$(echo "${CC_STATUS}" | awk '/CPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
             GPU_MODE=$(echo "${CC_STATUS}" | awk '/GPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
             NETWORK_MODE=$(echo "${CC_STATUS}" | awk '/Network status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
-            NUM_CPU_alloc2=$(${BOINCCMD} --get_task_summary sr | awk '/executing/ { if($3~"CPU") print $2 }' | xargs | sed 's/ /+/g' | bc -l | awk '{printf "%.2f\n", $0}')
+            NUM_CPU_alloc2=$(${BOINCCMD} --get_task_summary sr | awk '/executing/ { if($3~"CPU") print $2 }' | xargs | sed 's/ /+/g' | bc -l | awk '{printf "%.2f\n", $0}' | sed 's/,/./g' )
 			if [[ ${NUM_CPU_alloc2} > ${NUM_CPU_alloc} ]]; then NUM_CPU_alloc=$NUM_CPU_alloc2; fi
 			NUM_PROJECTS=$(${BOINCCMD} --get_project_status | grep -c "master URL:")
             NUM_WUS=$(echo "${TASKS}" | grep -c "WU name")
@@ -340,7 +341,7 @@ instance_list_header() {
         printf "%5s" "NET";
         printf "%5s" "NCPU";
         printf "%6s" " CPU%";
-		printf "%10s" "CPUalloc";
+	printf "%10s" "CPUalloc";
         printf "%10s" "BUFFER";
         printf "%4s" "PRJ";
         printf "%5s" "WUs";
@@ -367,7 +368,7 @@ instance_list() {
 	TOTAL_ACT=0
 	TOTAL_UPL=0
 	TOTAL_RTR=0
-	TOTAL_CPU_ALLOC=0
+	TOTAL_CPU_ALLOC="0"
 
 	#
 	# Cycle through all instances and display them via list_instance
