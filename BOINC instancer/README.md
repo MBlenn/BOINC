@@ -15,6 +15,7 @@ Lets start with the help to get an overview:
 -s - start all BOINC instances
 -u - update boinc-instancer from GitHub
 -t - terminate (stop) all instances
+-w - watch boinc-instancer -l periodically
 -E $ARG - enable local environment, load config from .tar file/URL
 -S $ARG - start specified instance
 -T $ARG - stop/terminate specified instance
