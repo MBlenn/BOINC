@@ -1,5 +1,7 @@
 #!/bin/bash
 #
+# v20240308
+#	- removed 7.24 dependency for sched. CPU counting
 # v20240307
 #	- option -w added to watch -n X boinc-instancer.sh -l
 #	- narrow down search for CPUpct to skip "not in use" CPUpct
@@ -276,7 +278,7 @@ list_instance() {
             CPU_MODE=$(echo "${CC_STATUS}" | awk '/CPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
             GPU_MODE=$(echo "${CC_STATUS}" | awk '/GPU status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
             NETWORK_MODE=$(echo "${CC_STATUS}" | awk '/Network status/ { getline; getline; if ($3=="always") print "ACT"; if ($3=="never") print "SUSP"; if ($3=="according") print "ATP";}')
-            NUM_CPU_alloc2=$(${BOINCCMD} --get_task_summary sr | awk '/executing/ { if($3~"CPU") print $2 }' | xargs | sed 's/ /+/g' | bc -l | awk '{printf "%.2f\n", $0}' | sed 's/,/./g' )
+            NUM_CPU_alloc2=$(${BOINCCMD} --get_tasks| grep -A 4 "active_task_state: EXECUTING" | awk '/resources:/ { if($3~"CPU") print $2 }'  | xargs | sed 's/ /+/g' | bc -l | awk '{printf "%.2f\n", $0}' | sed 's/,/./g' )
 			if [[ ${NUM_CPU_alloc2} > ${NUM_CPU_alloc} ]]; then NUM_CPU_alloc=$NUM_CPU_alloc2; fi
 			NUM_PROJECTS=$(${BOINCCMD} --get_project_status | grep -c "master URL:")
             NUM_WUS=$(echo "${TASKS}" | grep -c "WU name")
