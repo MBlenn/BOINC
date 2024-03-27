@@ -1,0 +1,88 @@
+#!/usr/bin/bash
+# v20240326
+#	- allow script to loop, then no longer requires cron 
+#	- added help
+# v20240325
+#   - initial version
+#
+
+LANG=C
+
+
+help(){
+    echo "Usage:"
+    echo "  -l nn       - Script loops every nn seconds, no need to run from cron"
+    echo "  -s string   - String & process to search for with pgrep"
+    echo "  -h          - this help"
+    echo "  -u          - update script from GitHub"
+    exit 0
+}
+
+main() {
+    processName=$1
+    l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
+    numWUs=$(pgrep -c ${processName})
+    processIDs=$(pgrep ${processName})
+
+    if [[ ${numWUs} -gt ${l3Caches} ]]; then
+        echo "There are more WUs than L3 complexes, unsupported scenario!"
+        exit 1
+    elif [[ ${numWUs} -lt ${l3Caches} ]]; then
+        echo "Less WUs than L3 complexes, likely wasting rescources!"
+    fi  
+
+    L3count=0
+    for PID in $(echo ${processIDs}); do
+        cpuList=$(lscpu -e | egrep ":${L3count} " | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+        echo taskset -a -p -c ${cpuList} ${PID}
+        taskset -a -p -c ${cpuList} ${PID} > /dev/null
+        L3count=$((L3count+1))
+    done
+}
+
+update_script() {
+	if [[ $(id -u) -ne 0 ]]; then
+		echo "You need to be root to perform this operation. aborting..."
+	else
+		script_download="https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso"
+		wget -O ${FILENAME}_tmp ${script_download}
+		VERSION_OLD=$(awk '/^# v20/ { print $2 }' ${FILENAME} | sed 's/v//' | head -1)
+		VERSION_NEW=$(awk '/^# v20/ { print $2 }' ${FILENAME}_tmp | sed 's/v//' | head -1)
+		echo "OLD: $VERSION_OLD"
+		echo "NEW: $VERSION_NEW"
+
+		if [[ $VERSION_NEW -gt $VERSION_OLD ]]; then
+			chmod +x ${FILENAME}_tmp
+			mv ${FILENAME}_tmp ${FILENAME}
+		else
+			echo "Local is same or newer version than on the repo!"
+		fi
+			
+	fi
+}
+
+while getopts hul:s: opt
+do
+   case $opt in
+        l) loop=$OPTARG; echo "Executing every $loop seconds";;
+        s) string=$OPTARG;;
+        h) help;;
+        u) update_script;;
+        *) help;;
+   esac
+done
+
+if [[ -z $string ]]; then
+    echo "No process defined, can't continue"
+    exit 1
+fi
+
+if [[ -z $loop ]]; then
+    main $string
+    exit 0
+else
+    while true; do 
+        main $string
+        sleep $loop
+    done
+fi
