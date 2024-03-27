@@ -1,4 +1,6 @@
 #!/usr/bin/bash
+# v20240327
+#   - update mechanism from GitHub added
 # v20240326
 #	- allow script to loop, then no longer requires cron 
 #	- added help
@@ -7,6 +9,7 @@
 #
 
 LANG=C
+FILENAME=$(dirname $(readlink -f $0))/$(basename -- "$0")
 
 
 help(){
@@ -59,6 +62,7 @@ update_script() {
 		fi
 			
 	fi
+    exit
 }
 
 while getopts hul:s: opt
