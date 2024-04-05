@@ -1,4 +1,7 @@
 #!/usr/bin/bash
+# v20240405
+#   - dropped pgrep to support long binary/process names
+#   - specify multiple apps separated by comma, eg, boinclasso -s milkyway_nbody,ap27_cpu
 # v20240327
 #   - update mechanism from GitHub added
 # v20240326
@@ -12,21 +15,21 @@ LANG=C
 FILENAME=$(dirname $(readlink -f $0))/$(basename -- "$0")
 
 
-help(){
+help() {
     echo "Usage:"
     echo "  -l nn       - Script loops every nn seconds, no need to run from cron"
     echo "  -s string   - String & process to search for with pgrep"
     echo "  -h          - this help"
+    echo "  -e          - evaluate"
     echo "  -u          - update script from GitHub"
     exit 0
 }
 
 main() {
-    processName=$1
+    processIDs=$(ps -ef | egrep "$(echo $1 | tr ',' '|')" | egrep -v " grep|boinclasso" | awk '{ print $2 }')
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
-    numWUs=$(pgrep -c ${processName})
-    processIDs=$(pgrep ${processName})
-
+    numWUs=$(echo ${processIDs} | wc -w)
+    
     if [[ ${numWUs} -gt ${l3Caches} ]]; then
         echo "There are more WUs than L3 complexes, unsupported scenario!"
         exit 1
@@ -34,13 +37,27 @@ main() {
         echo "Less WUs than L3 complexes, likely wasting rescources!"
     fi  
 
-    L3count=0
+    L3counter=0
     for PID in $(echo ${processIDs}); do
-        cpuList=$(lscpu -e | egrep ":${L3count} " | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+        cpuList=$(lscpu -e | egrep ":${L3counter} " | awk '{ print $1 }' | xargs | sed 's/ /,/g')
         echo taskset -a -p -c ${cpuList} ${PID}
         taskset -a -p -c ${cpuList} ${PID} > /dev/null
-        L3count=$((L3count+1))
+        L3counter=$((L3counter+1))
     done
+}
+
+eval() {
+    CPU=$(awk -F": " '/model name/ { print $2 }' /proc/cpuinfo | sort -u)
+    CPUs=$(lscpu | awk '/^CPU\(s\):/ { print $2 }')
+    l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
+    l3Size=$(lscpu | awk '/L3 cache:/ { print $3 }')
+    echo "CPU:          $CPU"
+    echo "L3 Caches:    $l3Caches"
+    echo "$CPUs"
+    echo "$l3Size"
+    echo "Ideal # threads $(($CPUs/$l3Caches))"
+    echo "Ideal # WUs $(($CPUs/$l3Caches))"
+    exit 0
 }
 
 update_script() {
@@ -65,16 +82,20 @@ update_script() {
     exit
 }
 
-while getopts hul:s: opt
+while getopts ehul:s: opt
 do
    case $opt in
         l) loop=$OPTARG; echo "Executing every $loop seconds";;
         s) string=$OPTARG;;
         h) help;;
+        e) eval;;
         u) update_script;;
         *) help;;
    esac
 done
+
+version=$(awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
+echo "Local version: $version"
 
 if [[ -z $string ]]; then
     echo "No process defined, can't continue"
