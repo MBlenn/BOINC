@@ -1,4 +1,7 @@
 #!/usr/bin/bash
+# v20240411
+#   - use -e to evaluate / suggest good number of threads per WU and total WUs
+#   - use -k N to use N core complexes / L3 per WU
 # v20240405
 #   - dropped pgrep to support long binary/process names
 #   - specify multiple apps separated by comma, eg, boinclasso -s milkyway_nbody,ap27_cpu
@@ -13,7 +16,7 @@
 
 LANG=C
 FILENAME=$(dirname $(readlink -f $0))/$(basename -- "$0")
-
+version=$(awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
 
 help() {
     echo "Usage:"
@@ -32,31 +35,48 @@ main() {
     
     if [[ ${numWUs} -gt ${l3Caches} ]]; then
         echo "There are more WUs than L3 complexes, unsupported scenario!"
-        exit 1
+        #exit 1
     elif [[ ${numWUs} -lt ${l3Caches} ]]; then
         echo "Less WUs than L3 complexes, likely wasting rescources!"
     fi  
 
     L3counter=0
     for PID in $(echo ${processIDs}); do
-        cpuList=$(lscpu -e | egrep ":${L3counter} " | awk '{ print $1 }' | xargs | sed 's/ /,/g')
-        echo taskset -a -p -c ${cpuList} ${PID}
-        taskset -a -p -c ${cpuList} ${PID} > /dev/null
-        L3counter=$((L3counter+1))
+        if [[ -z $CCXperWU ]]; then
+            grepList=":${L3counter} "
+            L3increment=1
+            L3counter=$((L3counter+1))
+        else
+            L3increment=$CCXperWU       
+            L3upper=$(((L3counter+L3increment)-1))
+            grepList=":$L3counter "
+            while [[ $L3counter -lt $L3upper ]]; do
+                L3counter=$((L3counter+1))
+                grepList="$grepList |:${L3counter} "
+            done
+            L3counter=$((L3counter+1))
+        fi
+        cpuList=$(lscpu -e | egrep "${grepList}" | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+        if [[ $cpuList == "" ]]; then
+            echo "No unassigned L3 for PID ${PID}."
+        else
+            echo taskset -a -p -c ${cpuList} ${PID}
+            taskset -a -p -c ${cpuList} ${PID} > /dev/null
+        fi
     done
 }
 
 eval() {
-    CPU=$(awk -F": " '/model name/ { print $2 }' /proc/cpuinfo | sort -u)
+    CPUtype=$(awk -F": " '/model name/ { print $2 }' /proc/cpuinfo | sort -u)
     CPUs=$(lscpu | awk '/^CPU\(s\):/ { print $2 }')
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
     l3Size=$(lscpu | awk '/L3 cache:/ { print $3 }')
-    echo "CPU:          $CPU"
-    echo "L3 Caches:    $l3Caches"
-    echo "$CPUs"
-    echo "$l3Size"
-    echo "Ideal # threads $(($CPUs/$l3Caches))"
-    echo "Ideal # WUs $(($CPUs/$l3Caches))"
+    echo "CPU:              $CPUtype"
+    echo "Log. CPUs:        $CPUs"
+    echo "L3 Caches:        $l3Caches"
+    echo "L3 size:          $l3Size"
+    echo "Ideal # threads   $(($CPUs/$l3Caches))"
+    echo "Ideal # WUs       $(($CPUs/$(($CPUs/$l3Caches))))"
     exit 0
 }
 
@@ -82,11 +102,12 @@ update_script() {
     exit
 }
 
-while getopts ehul:s: opt
+while getopts ehul:k:s: opt
 do
    case $opt in
         l) loop=$OPTARG; echo "Executing every $loop seconds";;
         s) string=$OPTARG;;
+        k) CCXperWU=$OPTARG;;
         h) help;;
         e) eval;;
         u) update_script;;
@@ -94,7 +115,6 @@ do
    esac
 done
 
-version=$(awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
 echo "Local version: $version"
 
 if [[ -z $string ]]; then
