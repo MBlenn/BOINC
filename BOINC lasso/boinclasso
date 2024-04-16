@@ -1,4 +1,9 @@
 #!/usr/bin/bash
+# v20240416
+#   - use -v to show local & GitHub version
+#   - use -p to assign only physical cores (ignoring SMT)
+#   - for now deactivated warning if less WUs then L3 complexes are present
+#   - update function will overwrite older and same version to allow for multiple updates / fixes per day
 # v20240411
 #   - use -e to evaluate / suggest good number of threads per WU and total WUs
 #   - use -k N to use N core complexes / L3 per WU
@@ -16,15 +21,15 @@
 
 LANG=C
 FILENAME=$(dirname $(readlink -f $0))/$(basename -- "$0")
-version=$(awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
 
 help() {
     echo "Usage:"
-    echo "  -l nn       - Script loops every nn seconds, no need to run from cron"
-    echo "  -s string   - String & process to search for with pgrep"
-    echo "  -h          - this help"
+    echo "  -l nn       - Loop every nn seconds, no need to run from cron"
+    echo "  -s string   - String & process to search for"
+    echo "  -h          - This help"
     echo "  -e          - evaluate"
     echo "  -u          - update script from GitHub"
+    echo "  -v          - show local and GitHub version" 
     exit 0
 }
 
@@ -32,12 +37,13 @@ main() {
     processIDs=$(ps -ef | egrep "$(echo $1 | tr ',' '|')" | egrep -v " grep|boinclasso" | awk '{ print $2 }')
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
     numWUs=$(echo ${processIDs} | wc -w)
-    
+    threadsPerCore=$(lscpu | awk '/^Thread\(s\) per core:/ { print $4 }')
+
     if [[ ${numWUs} -gt ${l3Caches} ]]; then
         echo "There are more WUs than L3 complexes, unsupported scenario!"
         #exit 1
-    elif [[ ${numWUs} -lt ${l3Caches} ]]; then
-        echo "Less WUs than L3 complexes, likely wasting rescources!"
+    #elif [[ ${numWUs} -lt ${l3Caches} ]]; then
+    #    echo "Less WUs than L3 complexes, likely wasting rescources!"
     fi  
 
     L3counter=0
@@ -56,7 +62,15 @@ main() {
             done
             L3counter=$((L3counter+1))
         fi
-        cpuList=$(lscpu -e | egrep "${grepList}" | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+        
+        if [[ $physOnly == "true" ]]; then
+            cpuListLines=$(lscpu -e | egrep "${grepList}" | awk '{ print $1 }' | wc -l)
+            numFirstCores=$(($cpuListLines/$threadsPerCore))
+            cpuList=$(lscpu -e | egrep "${grepList}" | head -${numFirstCores} | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+        else
+            cpuList=$(lscpu -e | egrep "${grepList}" | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+        fi
+
         if [[ $cpuList == "" ]]; then
             echo "No unassigned L3 for PID ${PID}."
         else
@@ -91,7 +105,7 @@ update_script() {
 		echo "OLD: $VERSION_OLD"
 		echo "NEW: $VERSION_NEW"
 
-		if [[ $VERSION_NEW -gt $VERSION_OLD ]]; then
+		if [[ $VERSION_NEW -ge $VERSION_OLD ]]; then
 			chmod +x ${FILENAME}_tmp
 			mv ${FILENAME}_tmp ${FILENAME}
 		else
@@ -102,7 +116,15 @@ update_script() {
     exit
 }
 
-while getopts ehul:k:s: opt
+version() {
+    version=$(awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
+    lastVersion=$(lynx -nomargins -dont_wrap_pre --dump https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso | awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
+    echo "Local version:    $version"
+    echo "GitHub version:   $lastVersion"
+    exit 0
+}
+
+while getopts ehuvpl:k:s: opt
 do
    case $opt in
         l) loop=$OPTARG; echo "Executing every $loop seconds";;
@@ -111,11 +133,11 @@ do
         h) help;;
         e) eval;;
         u) update_script;;
+        p) physOnly=true;;
+        v) version;;
         *) help;;
    esac
 done
-
-echo "Local version: $version"
 
 if [[ -z $string ]]; then
     echo "No process defined, can't continue"
@@ -123,11 +145,11 @@ if [[ -z $string ]]; then
 fi
 
 if [[ -z $loop ]]; then
-    main $string
+    main $string $physOnly
     exit 0
 else
     while true; do 
-        main $string
+        main $string $physOnly
         sleep $loop
     done
 fi
