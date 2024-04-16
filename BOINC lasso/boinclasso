@@ -25,10 +25,12 @@ FILENAME=$(dirname $(readlink -f $0))/$(basename -- "$0")
 help() {
     echo "Usage:"
     echo "  -l nn       - Loop every nn seconds, no need to run from cron"
-    echo "  -s string   - String & process to search for"
+    echo "  -s string   - String / process to search for"
+    echo "  -k n        - Use n CCX per WU"
     echo "  -h          - This help"
     echo "  -e          - evaluate"
     echo "  -u          - update script from GitHub"
+    echo "  -p          - ignore SMT and pin 1 thread per physical core"
     echo "  -v          - show local and GitHub version" 
     exit 0
 }
