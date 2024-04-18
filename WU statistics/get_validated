@@ -1,11 +1,14 @@
 #!/bin/bash
-# v20211106
+# v20240416	- fixed Primegrid, removing the (1^st), Proof und Main task clutter
+# v20211106 - initial
 
 if [ -z $1 ]; then
 	echo "Please specify results URL for one host";
 	exit 1;
 else
 	FULLURL="$1";
+	#LANG=C
+	#export LANG
 fi
 
 #
@@ -32,7 +35,7 @@ cat /dev/null > /tmp/host_details
 OFFSET=0; 
 while [[ $OFFSET -lt $MAXOFFSET ]]; do
 	printf "$OFFSET ";
-	lynx -nomargins -dont_wrap_pre --dump "${URL}results.php?offset=${OFFSET}&hostid=${HOSTID}&state=4&appid=${APPID}" | grep UTC | sed 's/UTC/UTC /g' | egrep -v "Aborted|Progress|Redundant|waiting|pending|New"  > /tmp/WU_data.raw;
+	lynx -nomargins -dont_wrap_pre --dump "${URL}results.php?offset=${OFFSET}&hostid=${HOSTID}&state=4&appid=${APPID}" | grep UTC | sed 's/UTC/UTC /g' | egrep -v "^Generated |Aborted|rogress|Redundant|waiting|pending|New|suppressed pending completion" > /tmp/WU_data.raw;
 	WCL=$(wc -l /tmp/WU_data.raw | awk '{ print $1 }')
 	if [[ $WCL -eq 0 ]]; then 
 		OFFSET=$MAXOFFSET
@@ -56,26 +59,43 @@ else
 fi
 
 while read line; do
-        echo ${line} | grep -q validated && T1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $1 }')
+	if [[ $URL =~ "www.primegrid.com" ]]; then 
+		#echo "PrimeGrid"
+		line=$(echo $line | sed 's/\[Proof task\] //g;s/\[Main task\] //g;s/(1^st) //g;s/\[[0-9][0-9]*]//g')
+		echo ${line} | grep -q validated && T1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $1 }')
         echo ${line} | grep -q validated && T2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $2 }')
         echo ${line} | grep -q validated && C1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $3 }')
         echo ${line} | grep -q validated && C2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $4 }')
-        echo $C2 |egrep -q "^([0-9]*,)*([0-9]*)+\.[0-9][0-9]";
-        if [[ $? == 0 ]]; then
-		# C2 is numerical, so claimed/granted based
-                GRANTED=$(echo $C2 | sed 's/[./,]//g')
-        else
-		# C2 is not numerical, so not claimed/granted based
-                GRANTED=$(echo $C1 | sed 's/[./,]//g')
-        fi
+	else
+	    echo ${line} | grep -q validated && T1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $1 }')
+        echo ${line} | grep -q validated && T2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $2 }')
+        echo ${line} | grep -q validated && C1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $3 }')
+        echo ${line} | grep -q validated && C2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $4 }')
+    fi
 
-        T1=$(echo ${T1} | awk -F"." '{ print $1 }' | sed 's/,//g')
-        T2=$(echo ${T2} | awk -F"." '{ print $1 }' | sed 's/,//g')
-        if [[ $T1 -gt $T2 ]]; then
-                echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
-        else
-                echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
-        fi;
+	#echo $T1
+	#echo $T2
+	#echo $C1
+	#echo $C2
+	#echo
+	
+	echo $C2 |egrep -q "^([0-9]*,)*([0-9]*)+\.[0-9][0-9]";
+
+	if [[ $? == 0 ]]; then
+		# C2 is numerical, so claimed/granted based
+        GRANTED=$(echo $C2 | sed 's/[./,]//g')
+    else
+		# C2 is not numerical, so not claimed/granted based
+        GRANTED=$(echo $C1 | sed 's/[./,]//g')
+    fi
+
+    T1=$(echo ${T1} | awk -F"." '{ print $1 }' | sed 's/,//g')
+    T2=$(echo ${T2} | awk -F"." '{ print $1 }' | sed 's/,//g')
+    if [[ $T1 -gt $T2 ]]; then
+        echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
+    else
+        echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
+    fi;
 done < /tmp/WU_all_data.raw
 
 TOTALTIME=0; 
@@ -84,8 +104,10 @@ for WURUNTIME in $(cat /tmp/WU_runtime_granted | awk '{ print $1 }'); do
 	TOTALTIME=$(echo "${TOTALTIME}+${TIME}" | bc -l)
 done
 
+
 TOTALCREDIT=0; 
 for WUCREDIT in $(cat /tmp/WU_runtime_granted | awk '{ print $2 }'); do
+		#echo $WUCREDIT
         CREDIT=$(echo ${WUCREDIT} | awk -F. '{ print $1 }' | sed 's/,//g')
         TOTALCREDIT=$(echo "${TOTALCREDIT}+${CREDIT}" | bc -l)
 done
