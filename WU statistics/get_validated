@@ -52,12 +52,7 @@ if [[ ! $FULLURL =~ "einsteinathome" ]]; then
 		exit 1
 	else
 		echo "- download complete. Calculating..."
-		if [[ ${APPID} != "" ]]; then
-			# APPID is set, get APP name
-			WORKUNIT_ID=$(head -1 /tmp/WU_all_data.raw | awk '{ print $2 }' | awk -F"]" '{ print $2 }')
-			application_name=$(lynx -nomargins -dont_wrap_pre --dump "${URL}workunit.php?wuid=${WORKUNIT_ID}" | awk '/application/ { $1=""; print $0 }' | sed 's/^ //')
-			printf "%-15s" "Application: ";             printf "%35s" "${application_name}"; echo
-		fi
+
 	fi
 
 	while read line; do
@@ -87,9 +82,24 @@ if [[ ! $FULLURL =~ "einsteinathome" ]]; then
     	fi;
 	done < /tmp/WU_all_data.raw
 	lynx -nomargins -dont_wrap_pre --dump "${URL}show_host_detail.php?hostid=${HOSTID}" > /tmp/host_details
-	CPU=$(cat /tmp/host_details | grep -A1 "CPU type" | tail -n1 | cut -f1 -d[ | sed 's/ $//' )
+	CPUstring=$(cat /tmp/host_details | grep -A1 "CPU type" | xargs )
+	if [[ ${CPUstring} =~ "AMD" ]]; then 
+		CPU=$(echo $CPUstring | awk -F"AuthenticAMD " '{ print $2 }' | cut -f1 -d[ | sed 's/ $//')
+	elif [[ ${CPUstring} =~ "GenuineIntel" ]]; then 
+		CPU=$(echo $CPUstring | awk -F"GenuineIntel " '{ print $2 }' | cut -f1 -d[ | sed 's/ $//')
+	elif [[ ${CPUstring} =~ "ARM" ]]; then 
+		CPU=$(echo $CPUstring | awk -F"CPU type " '{ print $2 }')
+		printfOffset=10
+	fi
+	
 	OS=$(cat /tmp/host_details | grep -A2 "Operating System" | sed 's/Operating System //' | grep -v "BOINC version" | xargs | cut -f1 -d[ | sed 's/ $//' )
 	NUMPROC=$(cat /tmp/host_details | egrep "Number of processors|Number of CPUs" | awk '{ print $4 }')
+	if [[ ${APPID} != "" ]]; then
+		# APPID is set, get APP name
+		WORKUNIT_ID=$(head -1 /tmp/WU_all_data.raw | awk '{ print $2 }' | awk -F"]" '{ print $2 }')
+		application_name=$(lynx -nomargins -dont_wrap_pre --dump "${URL}workunit.php?wuid=${WORKUNIT_ID}" | awk '/application/ { $1=""; print $0 }' | sed 's/^ //')
+		printf "%-15s" "Application: ";             printf "%$((35+printfOffset))s" "${application_name}"; echo
+	fi
 else	
 	# Einstein
 	printfOffset=10
@@ -116,12 +126,6 @@ else
 		exit 1
 	else
 		echo "- download complete. Calculating..."
-		if [[ ${APPID} != "" ]]; then
-			# APPID is set, get APP name
-			WORKUNIT_ID=$(head -1 /tmp/WU_all_data.raw | awk '{ print $2 }' | awk -F"]" '{ print $2 }')
-			application_name=$(lynx -nomargins -dont_wrap_pre --dump "${URL}/workunit.php?wuid=${WORKUNIT_ID}" | awk '/Application:/ { $1=""; print $0 }' | sed 's/ //')
-			printf "%-15s" "Application: ";             printf "%$((35+printfOffset))s" "${application_name}"; echo
-		fi
 	fi
 	
 	while read line; do
@@ -151,6 +155,13 @@ else
 	elif [[ ${CPUstring} =~ "ARM" ]]; then 
 		CPU=$CPUstring
 	fi
+	if [[ ${APPID} != "" ]]; then
+		# APPID is set, get APP name
+		WORKUNIT_ID=$(head -1 /tmp/WU_all_data.raw | awk '{ print $2 }' | awk -F"]" '{ print $2 }')
+		application_name=$(lynx -nomargins -dont_wrap_pre --dump "${URL}/workunit.php?wuid=${WORKUNIT_ID}" | awk '/Application:/ { $1=""; print $0 }' | sed 's/ //')
+		printf "%-15s" "Application: ";             printf "%$((35+printfOffset))s" "${application_name}"; echo
+	fi
+	# End of Einstein
 fi
 
 TOTALTIME=0; 
