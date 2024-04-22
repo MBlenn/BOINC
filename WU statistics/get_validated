@@ -1,14 +1,14 @@
 #!/bin/bash
+# v20240422 - support for Einstein added
+#			- display ARM CPU ident if available
 # v20240416	- fixed Primegrid, removing the (1^st), Proof und Main task clutter
 # v20211106 - initial
 
 if [ -z $1 ]; then
-	echo "Please specify results URL for one host";
+	echo "Please provide results URL for one host";
 	exit 1;
 else
 	FULLURL="$1";
-	#LANG=C
-	#export LANG
 fi
 
 #
@@ -23,80 +23,135 @@ if [ $? -ne 0 ]; then
 	sudo apt -y install lynx;
 fi;
 
-URL=$(echo "$FULLURL" | awk -F"results.php" '{ print $1 }')
-HOSTID=$(echo "${FULLURL}" | awk -F"hostid=" '{ print $2 }' | awk -F\& '{ print $1 }')
-APPID=$(echo "${FULLURL}"| awk -F"appid=" '{ print $2 }' | awk -F\& '{ print $1 }')
-
 cat /dev/null > /tmp/WU_all_data.raw
 cat /dev/null > /tmp/WU_runtime_granted
 cat /dev/null > /tmp/WU_data.raw
 cat /dev/null > /tmp/host_details
 
-OFFSET=0; 
-while [[ $OFFSET -lt $MAXOFFSET ]]; do
-	printf "$OFFSET ";
-	lynx -nomargins -dont_wrap_pre --dump "${URL}results.php?offset=${OFFSET}&hostid=${HOSTID}&state=4&appid=${APPID}" | grep UTC | sed 's/UTC/UTC /g' | egrep -v "^Generated |Aborted|rogress|Redundant|waiting|pending|New|suppressed pending completion" > /tmp/WU_data.raw;
-	WCL=$(wc -l /tmp/WU_data.raw | awk '{ print $1 }')
+if [[ ! $FULLURL =~ "einsteinathome" ]]; then 
+	printfOffset=0
+	URL=$(echo "$FULLURL" | awk -F"results.php" '{ print $1 }')
+	HOSTID=$(echo "${FULLURL}" | awk -F"hostid=" '{ print $2 }' | awk -F\& '{ print $1 }')
+	APPID=$(echo "${FULLURL}"| awk -F"appid=" '{ print $2 }' | awk -F\& '{ print $1 }')
+
+	OFFSET=0; 
+	while [[ $OFFSET -lt $MAXOFFSET ]]; do
+		printf "$OFFSET ";
+		lynx -nomargins -dont_wrap_pre --dump "${URL}results.php?offset=${OFFSET}&hostid=${HOSTID}&state=4&appid=${APPID}" | grep UTC | sed 's/UTC/UTC /g' | egrep -v "^Generated |Aborted|rogress|Redundant|waiting|pending|New|suppressed pending completion" > /tmp/WU_data.raw;
+		WCL=$(wc -l /tmp/WU_data.raw | awk '{ print $1 }')
+		if [[ $WCL -eq 0 ]]; then 
+			OFFSET=$MAXOFFSET
+		else 
+			OFFSET=$(($OFFSET+20))
+			cat /tmp/WU_data.raw >> /tmp/WU_all_data.raw
+		fi
+	done
+	WCL=$(wc -l /tmp/WU_all_data.raw | awk '{ print $1 }')
 	if [[ $WCL -eq 0 ]]; then 
-		OFFSET=$MAXOFFSET
-	else 
-		OFFSET=$(($OFFSET+20))
-		cat /tmp/WU_data.raw >> /tmp/WU_all_data.raw
+		echo "- No result data loaded from project server, exiting..."
+		exit 1
+	else
+		echo "- download complete. Calculating..."
+		if [[ ${APPID} != "" ]]; then
+			# APPID is set, get APP name
+			WORKUNIT_ID=$(head -1 /tmp/WU_all_data.raw | awk '{ print $2 }' | awk -F"]" '{ print $2 }')
+			application_name=$(lynx -nomargins -dont_wrap_pre --dump "${URL}workunit.php?wuid=${WORKUNIT_ID}" | awk '/application/ { $1=""; print $0 }' | sed 's/^ //')
+			printf "%-15s" "Application: ";             printf "%35s" "${application_name}"; echo
+		fi
 	fi
-done
-WCL=$(wc -l /tmp/WU_all_data.raw | awk '{ print $1 }')
-if [[ $WCL -eq 0 ]]; then 
-	echo "- No result data loaded from project server, exiting..."
-	exit 1
-else
-	echo "- download complete. Calculating..."
-	if [[ ${APPID} != "" ]]; then
-		# APPID is set, get APP name
-		WORKUNIT_ID=$(head -1 /tmp/WU_all_data.raw | awk '{ print $2 }' | awk -F"]" '{ print $2 }')
-		application_name=$(lynx -nomargins -dont_wrap_pre --dump "${URL}workunit.php?wuid=${WORKUNIT_ID}" | awk '/application/ { $1=""; print $0 }' | sed 's/^ //')
-		printf "%-15s" "Application: ";             printf "%35s" "${application_name}"; echo
+
+	while read line; do
+		if [[ $URL =~ "www.primegrid.com" ]]; then 
+			#echo "PrimeGrid"
+			line=$(echo $line | sed 's/\[Proof task\] //g;s/\[Main task\] //g;s/(1^st) //g;s/\[[0-9][0-9]*]//g')
+		fi
+		echo ${line} | grep -q validated && T1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $1 }' | tr -d -s '.|,' '')
+    	echo ${line} | grep -q validated && T2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $2 }' | tr -d -s '.|,' '')
+    	echo ${line} | grep -q validated && C1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $3 }' | tr -d -s '.|,' '')
+    	echo ${line} | grep -q validated && C2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $4 }' | tr -d -s '.|,' '')
+	
+		echo $C2 |egrep -q "^([0-9]*,)*([0-9]*)+\.[0-9][0-9]";
+
+		if [[ $? == 0 ]]; then
+			# C2 is numerical, so claimed/granted based
+	        GRANTED=$(echo $C2 | tr -d -s '.|,' '')
+    	else
+			# C2 is not numerical, so not claimed/granted based
+        	GRANTED=$(echo $C1 | tr -d -s '.|,' '')
+    	fi
+	
+    	if [[ $T1 -gt $T2 ]]; then
+        	echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
+    	else
+        	echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
+    	fi;
+	done < /tmp/WU_all_data.raw
+	lynx -nomargins -dont_wrap_pre --dump "${URL}show_host_detail.php?hostid=${HOSTID}" > /tmp/host_details
+	CPU=$(cat /tmp/host_details | grep -A1 "CPU type" | tail -n1 | cut -f1 -d[ | sed 's/ $//' )
+	OS=$(cat /tmp/host_details | grep -A2 "Operating System" | sed 's/Operating System //' | grep -v "BOINC version" | xargs | cut -f1 -d[ | sed 's/ $//' )
+	NUMPROC=$(cat /tmp/host_details | egrep "Number of processors|Number of CPUs" | awk '{ print $4 }')
+else	
+	# Einstein
+	printfOffset=10
+	URL="https://einsteinathome.org/de/"
+	HOSTID=$(echo "${FULLURL}" | awk -F"/" '{ print $6 }')
+	APPID=$(echo "${FULLURL}"| awk -F"/|?" '{ print $9 }')
+	OFFSET=0; 
+	MAXOFFSET=5
+	while [[ $OFFSET -lt $MAXOFFSET ]]; do
+		printf "$OFFSET ";
+		lynx -nomargins -dont_wrap_pre --dump "${URL}/host/${HOSTID}/tasks/4/${APPID}?page=${OFFSET}" | grep UTC | sed 's/UTC/UTC /g' | egrep -v "^Generated |Aborted|rogress|Redundant|waiting|pending|New|suppressed pending completion" > /tmp/WU_data.raw;
+		
+		WCL=$(wc -l /tmp/WU_data.raw | awk '{ print $1 }')
+		if [[ $WCL -eq 0 ]]; then 
+			OFFSET=$MAXOFFSET
+		else 
+			OFFSET=$(($OFFSET+1))
+			cat /tmp/WU_data.raw >> /tmp/WU_all_data.raw
+		fi
+	done
+	WCL=$(wc -l /tmp/WU_all_data.raw | awk '{ print $1 }')
+	if [[ $WCL -eq 0 ]]; then 
+		echo "- No result data loaded from project server, exiting..."
+		exit 1
+	else
+		echo "- download complete. Calculating..."
+		if [[ ${APPID} != "" ]]; then
+			# APPID is set, get APP name
+			WORKUNIT_ID=$(head -1 /tmp/WU_all_data.raw | awk '{ print $2 }' | awk -F"]" '{ print $2 }')
+			application_name=$(lynx -nomargins -dont_wrap_pre --dump "${URL}/workunit.php?wuid=${WORKUNIT_ID}" | awk '/Application:/ { $1=""; print $0 }' | sed 's/ //')
+			printf "%-15s" "Application: ";             printf "%$((35+printfOffset))s" "${application_name}"; echo
+		fi
+	fi
+	
+	while read line; do
+		echo ${line} | grep -q validated &&      T1=$(echo ${line} | awk '{ print $16 }' | tr -d -s '.|,' '')
+    	echo ${line} | grep -q validated &&      T2=$(echo ${line} | awk '{ print $17 }' | tr -d -s '.|,' '')
+    	echo ${line} | grep -q validated && GRANTED=$(echo ${line} | awk '{ print $18 }' | tr -d -s '.|,' '')
+    
+    	T1=$(echo "scale=0; ${T1}*100" | bc -l)
+    	T2=$(echo "scale=0; ${T2}*100" | bc -l)
+		GRANTED=$(echo "scale=0; ${GRANTED}*100" | bc -l)
+    	if [[ $T1 -gt $T2 ]]; then
+        	echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
+    	else
+        	echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
+    	fi;
+	done < /tmp/WU_all_data.raw
+
+	lynx -nomargins -dont_wrap_pre --dump "https://einsteinathome.org/de/host/${HOSTID}" > /tmp/host_details
+
+	CPUstring=$(awk -F"CPU type: " '/CPU type/ { print $2 }' /tmp/host_details)
+	OS=$(awk -F"Operating system: " '/Operating system:/ { print $2 }' /tmp/host_details | cut -f1 -d[ | sed 's/ $//')
+	NUMPROC=$(awk -F ": " '/Number of processors/ { print $2 }' /tmp/host_details)
+	if [[ ${CPUstring} =~ "AMD" ]]; then 
+		CPU=$(echo $CPUstring | awk -F"AuthenticAMD " '{ print $2 }' | cut -f1 -d[ | sed 's/ $//')
+	elif [[ ${CPUstring} =~ "GenuineIntel" ]]; then 
+		CPU=$(echo $CPUstring | awk -F"GenuineIntel " '{ print $2 }' | cut -f1 -d[ | sed 's/ $//')
+	elif [[ ${CPUstring} =~ "ARM" ]]; then 
+		CPU=$CPUstring
 	fi
 fi
-
-while read line; do
-	if [[ $URL =~ "www.primegrid.com" ]]; then 
-		#echo "PrimeGrid"
-		line=$(echo $line | sed 's/\[Proof task\] //g;s/\[Main task\] //g;s/(1^st) //g;s/\[[0-9][0-9]*]//g')
-		echo ${line} | grep -q validated && T1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $1 }')
-        echo ${line} | grep -q validated && T2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $2 }')
-        echo ${line} | grep -q validated && C1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $3 }')
-        echo ${line} | grep -q validated && C2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $4 }')
-	else
-	    echo ${line} | grep -q validated && T1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $1 }')
-        echo ${line} | grep -q validated && T2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $2 }')
-        echo ${line} | grep -q validated && C1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $3 }')
-        echo ${line} | grep -q validated && C2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $4 }')
-    fi
-
-	#echo $T1
-	#echo $T2
-	#echo $C1
-	#echo $C2
-	#echo
-	
-	echo $C2 |egrep -q "^([0-9]*,)*([0-9]*)+\.[0-9][0-9]";
-
-	if [[ $? == 0 ]]; then
-		# C2 is numerical, so claimed/granted based
-        GRANTED=$(echo $C2 | sed 's/[./,]//g')
-    else
-		# C2 is not numerical, so not claimed/granted based
-        GRANTED=$(echo $C1 | sed 's/[./,]//g')
-    fi
-
-    T1=$(echo ${T1} | awk -F"." '{ print $1 }' | sed 's/,//g')
-    T2=$(echo ${T2} | awk -F"." '{ print $1 }' | sed 's/,//g')
-    if [[ $T1 -gt $T2 ]]; then
-        echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
-    else
-        echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
-    fi;
-done < /tmp/WU_all_data.raw
 
 TOTALTIME=0; 
 for WURUNTIME in $(cat /tmp/WU_runtime_granted | awk '{ print $1 }'); do
@@ -107,27 +162,22 @@ done
 
 TOTALCREDIT=0; 
 for WUCREDIT in $(cat /tmp/WU_runtime_granted | awk '{ print $2 }'); do
-		#echo $WUCREDIT
         CREDIT=$(echo ${WUCREDIT} | awk -F. '{ print $1 }' | sed 's/,//g')
         TOTALCREDIT=$(echo "${TOTALCREDIT}+${CREDIT}" | bc -l)
 done
 
-lynx -nomargins -dont_wrap_pre --dump "${URL}show_host_detail.php?hostid=${HOSTID}" > /tmp/host_details
 
 RESULTS=$(cat /tmp/WU_all_data.raw | wc -l) 
-AVGTIME=$(echo "scale=1; ${TOTALTIME}/${RESULTS}" | bc -l)
+AVGTIME=$(echo "scale=1; ${TOTALTIME}/${RESULTS}/100" | bc -l)
 AVGCREDIT=$(echo "scale=2; ${TOTALCREDIT}/${RESULTS}/100" | bc -l)
 COREPERDAY=$(echo "scale=1; (86400/$AVGTIME)*$AVGCREDIT" | bc -l | awk -F"." '{ print $1 }')
-CPU=$(cat /tmp/host_details | grep -A1 "CPU type" | tail -n1 | cut -f1 -d[ | sed 's/ $//' )
-OS=$(cat /tmp/host_details | grep -A2 "Operating System" | sed 's/Operating System //' | grep -v "BOINC version" | xargs | cut -f1 -d[ | sed 's/ $//' )
-NUMPROC=$(cat /tmp/host_details | egrep "Number of processors|Number of CPUs" | awk '{ print $4 }')
 FULLSYSTEMPERDAY=$(echo "scale=1; ($NUMPROC*$COREPERDAY)" | bc -l | awk -F"." '{ print $1 }')
 
-printf "%-5s" "CPU:";				printf "%45s" "${CPU}"; echo
-printf "%-5s" "OS:";				printf "%45s" "${OS}"; echo
-printf "%-30s" "Results fetched: ";		printf "%20s" ${RESULTS}; echo
-printf "%-30s" "Average duration (s): ";		printf "%20s" ${AVGTIME}; echo
-printf "%-30s" "Average credit: ";		printf "%20s" ${AVGCREDIT}; echo
-printf "%-30s" "Number of reported cores: "; 	printf "%20s" ${NUMPROC}; echo
-printf "%-30s" "Per core per day: "; 		printf "%20s" ${COREPERDAY}; echo
-printf "%-30s" "Per system per day: "; 		printf "%20s" ${FULLSYSTEMPERDAY}; echo
+printf "%-5s" "CPU:";				printf "%$((45+printfOffset))s" "${CPU}"; echo
+printf "%-5s" "OS:";				printf "%$((45+printfOffset))s" "${OS}"; echo
+printf "%-30s" "Results fetched: ";		printf "%$((20+printfOffset))s" ${RESULTS}; echo
+printf "%-30s" "Average duration (s): ";		printf "%$((20+printfOffset))s" ${AVGTIME}; echo
+printf "%-30s" "Average credit: ";		printf "%$((20+printfOffset))s" ${AVGCREDIT}; echo
+printf "%-30s" "Number of reported cores: "; 	printf "%$((20+printfOffset))s" ${NUMPROC}; echo
+printf "%-30s" "Per core per day: "; 		printf "%$((20+printfOffset))s" ${COREPERDAY}; echo
+printf "%-30s" "Per system per day: "; 		printf "%$((20+printfOffset))s" ${FULLSYSTEMPERDAY}; echo
