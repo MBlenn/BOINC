@@ -19,8 +19,8 @@ Lets start with the help to get an overview:
 -E $ARG - enable local environment, load config from .tar file/URL
 -S $ARG - start specified instance
 -T $ARG - stop/terminate specified instance
--R $ARF - restart specified instance
--U $ARM - update preferences of specified instance
+-R $ARG - restart specified instance
+-U $ARG - update preferences of specified instance
 -D $ARG - delete specified instance (detach projects, remove instance)
 ```
 
