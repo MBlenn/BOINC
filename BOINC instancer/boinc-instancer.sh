@@ -1,5 +1,7 @@
 #!/bin/bash
 #
+# v20240507
+#	- another fix to ignore niu_max_ncpus_pct in global_prefs, v20240307 should have already fixed it
 # v20240308
 #	- removed 7.24 dependency for sched. CPU counting
 # v20240307
@@ -59,7 +61,7 @@ help() {
 	echo "-S \$ARG - start specified instance"
 	echo "-R \$ARG - restart specified instance"
 	echo "-T \$ARG - stop/terminate specified instance"
-	echo "-U \$ARM - update preferences of specified instance"
+	echo "-U \$ARG - update preferences of specified instance"
 	echo "-D \$ARG - delete specified instance (detach projects, remove instance)"
 }
 
@@ -530,15 +532,15 @@ setup_environment() {
             f_new_remote_hosts  && echo "OK"
             echo
 		fi
-		echo "Copy (additional) account config files to ${CONFIG_REPOSITORY}/boinc_accounts"
+		echo "Please copy (additional) account config files to ${CONFIG_REPOSITORY}/boinc_accounts"
 	else
 	    # create remote_hosts.cfg based on gateway in default route
 		printf "Creating new remote_hosts.cfg based on local network config - "
         f_new_remote_hosts && echo "OK"
 		echo
 
-		echo "Copy your gui_rpc_auth.cfg, cc_config.xml and global_prefs_override.xml to ${CONFIG_REPOSITORY}"
-		echo "Copy account config files to ${CONFIG_REPOSITORY}/boinc_accounts"
+		echo "Please copy your gui_rpc_auth.cfg, cc_config.xml and global_prefs_override.xml to ${CONFIG_REPOSITORY}"
+		echo "Please copy account config files to ${CONFIG_REPOSITORY}/boinc_accounts"
 	fi
 
 	#
@@ -871,45 +873,47 @@ update_ncpus() {
 }
 
 update_max_ncpus_pct() {
-    INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+	INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
     INSTANCE_DIR=boinc_${INSTANCE_PORT}
 
 	if [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ]; then	
-		prefs_override_file=global_prefs_override.xml
+		prefs_override_file=${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml
 	elif [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then
-		prefs_override_file=global_prefs.xml
+		prefs_override_file=${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml
 	fi
-	max_ncpus_pct=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/max_ncpus_pct/ { print $2"/1" }' | bc ); 
+
+	max_ncpus_pct=$(awk -F "[<|>]" '/<max_ncpus_pct/ { print $3"/1" }' ${prefs_override_file} | bc ); 
 	read -p "Maximum CPU %                                     " -i "${max_ncpus_pct}" -e REPLY
-	sed -i "s/<max_ncpus_pct>$max_ncpus_pct/<max_ncpus_pct>${REPLY}/" ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}	
+	sed -i "s/<max_ncpus_pct>$max_ncpus_pct/<max_ncpus_pct>${REPLY}/" ${prefs_override_file}	
 }
 
 update_work_buf_min_days() {
     INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
     INSTANCE_DIR=boinc_${INSTANCE_PORT}
 
-	if [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ]; then
-		prefs_override_file=global_prefs_override.xml
+	if [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ]; then	
+		prefs_override_file=${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml
 	elif [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then
-        prefs_override_file=global_prefs.xml
+		prefs_override_file=${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml
 	fi
-	work_buf_min_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_min_days/ { print $2 }' );
+
+	work_buf_min_days=$(awk -F "[<|>]" '/<work_buf_min_days/ { print $3 }' ${prefs_override_file});
     read -p "Minimum work buffer                               " -i "${work_buf_min_days}" -e REPLY
-	sed -i "s/<work_buf_min_days>.*/<work_buf_min_days>$REPLY<\/work_buf_min_days>/"  ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
+	sed -i "s/<work_buf_min_days>.*/<work_buf_min_days>$REPLY<\/work_buf_min_days>/"  ${prefs_override_file}
 }
 
 update_work_buf_additional_days() {
     INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
     INSTANCE_DIR=boinc_${INSTANCE_PORT}
 
-    if [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ]; then
-        prefs_override_file=global_prefs_override.xml
-    elif [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then
-        prefs_override_file=global_prefs.xml
-    fi
-    work_buf_additional_days=$(sed 's/[<|>]/ /g' ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file} | awk '/work_buf_additional_days/ { print $2 }' );
+	if [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml ]; then	
+		prefs_override_file=${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs_override.xml
+	elif [ -e ${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml ]; then
+		prefs_override_file=${INSTANCE_HOME}/${INSTANCE_DIR}/global_prefs.xml
+	fi
+    work_buf_additional_days=$(awk -F "[<|>]" '/<work_buf_additional_days>/ { print $3 }' ${prefs_override_file});
     read -p "Additional work buffer                            " -i "${work_buf_additional_days}" -e REPLY
-	sed -i "s/<work_buf_additional_days>.*/<work_buf_additional_days>$REPLY<\/work_buf_additional_days>/"  ${INSTANCE_HOME}/${INSTANCE_DIR}/${prefs_override_file}
+	sed -i "s/<work_buf_additional_days>.*/<work_buf_additional_days>$REPLY<\/work_buf_additional_days>/"  ${prefs_override_file}
 }
 
 
