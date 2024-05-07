@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # v20240507
-#	- another fix to ignore niu_max_ncpus_pct in global_prefs, v20240307 should have already fixed it
+#	- another fix to ignore niu_max_ncpus_pct in global_prefs as well, when using -U
 # v20240308
 #	- removed 7.24 dependency for sched. CPU counting
 # v20240307
