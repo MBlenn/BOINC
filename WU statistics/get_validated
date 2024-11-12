@@ -1,7 +1,8 @@
 #!/bin/bash
+# v20241111 - WU length comparison now works with sub 1s tasks
 # v20240422 - support for Einstein added
-#			- display ARM CPU ident if available
-# v20240416	- fixed Primegrid, removing the (1^st), Proof und Main task clutter
+#           - display ARM CPU ident if available
+# v20240416 - fixed Primegrid, removing the (1^st), Proof und Main task clutter
 # v20211106 - initial
 
 if [ -z $1 ]; then
@@ -136,7 +137,7 @@ else
     	T1=$(echo "scale=0; ${T1}*100" | bc -l)
     	T2=$(echo "scale=0; ${T2}*100" | bc -l)
 		GRANTED=$(echo "scale=0; ${GRANTED}*100" | bc -l)
-    	if [[ $T1 -gt $T2 ]]; then
+    	if (( $(echo "${T1} > ${T2}" | bc -l) )); then
         	echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
     	else
         	echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
