@@ -1,4 +1,7 @@
 #!/usr/bin/bash
+# v20250305
+#   - use -n for new algo that allows multiple WUs per L3, combine with -s (req) and -p (optional)
+#   - fixed -v which didn't show Github version correctly
 # v20240416
 #   - use -v to show local & GitHub version
 #   - use -p to assign only physical cores (ignoring SMT)
@@ -29,13 +32,14 @@ help() {
     echo "  -k n        - Use n CCX per WU"
     echo "  -h          - This help"
     echo "  -e          - evaluate"
+    echo "  -n          - new algo, supports multiple WUs per L3"
     echo "  -u          - update script from GitHub"
     echo "  -p          - ignore SMT and pin 1 thread per physical core"
     echo "  -v          - show local and GitHub version" 
     exit 0
 }
 
-main() {
+classic_algo() {
     processIDs=$(ps -ef | egrep "$(echo $1 | tr ',' '|')" | egrep -v " grep|boinclasso" | awk '{ print $2 }')
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
     numWUs=$(echo ${processIDs} | wc -w)
@@ -43,9 +47,7 @@ main() {
 
     if [[ ${numWUs} -gt ${l3Caches} ]]; then
         echo "There are more WUs than L3 complexes, unsupported scenario!"
-        #exit 1
-    #elif [[ ${numWUs} -lt ${l3Caches} ]]; then
-    #    echo "Less WUs than L3 complexes, likely wasting rescources!"
+        echo "You might want to run $0 with -n option."
     fi  
 
     L3counter=0
@@ -68,7 +70,7 @@ main() {
         if [[ $physOnly == "true" ]]; then
             cpuListLines=$(lscpu -e | egrep "${grepList}" | awk '{ print $1 }' | wc -l)
             numFirstCores=$(($cpuListLines/$threadsPerCore))
-            cpuList=$(lscpu -e | egrep "${grepList}" | head -${numFirstCores} | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+            cpuList=$(lscpu -e | egrep "${grepList}" | tail -${numFirstCores} | awk '{ print $1 }' | xargs | sed 's/ /,/g')
         else
             cpuList=$(lscpu -e | egrep "${grepList}" | awk '{ print $1 }' | xargs | sed 's/ /,/g')
         fi
@@ -82,17 +84,17 @@ main() {
     done
 }
 
-eval() {
+info() {
     CPUtype=$(awk -F": " '/model name/ { print $2 }' /proc/cpuinfo | sort -u)
     CPUs=$(lscpu | awk '/^CPU\(s\):/ { print $2 }')
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
     l3Size=$(lscpu | awk '/L3 cache:/ { print $3 }')
     echo "CPU:              $CPUtype"
     echo "Log. CPUs:        $CPUs"
-    echo "L3 Caches:        $l3Caches"
-    echo "L3 size:          $l3Size"
-    echo "Ideal # threads   $(($CPUs/$l3Caches))"
-    echo "Ideal # WUs       $(($CPUs/$(($CPUs/$l3Caches))))"
+    echo "L3 caches:        $l3Caches"
+    echo "L3 size:          ${l3Size}MB"
+    #echo "Ideal # threads   $(($CPUs/$l3Caches))"
+    #echo "Ideal # WUs       $(($CPUs/$(($CPUs/$l3Caches))))"
     exit 0
 }
 
@@ -119,39 +121,138 @@ update_script() {
 }
 
 version() {
-    version=$(awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
-    lastVersion=$(lynx -nomargins -dont_wrap_pre --dump https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso | awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
-    echo "Local version:    $version"
+    localversion=$(awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
+    lastVersion=$(lynx -nomargins -dont_wrap_pre --dump https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso | awk '/^# v20/ { print $2 }' | head -1)
+    echo "Local version:    $localversion"
     echo "GitHub version:   $lastVersion"
     exit 0
 }
 
-while getopts ehuvpl:k:s: opt
+new_algo() {
+
+    matchWUname=$1
+    l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
+    threads=$(lscpu | awk '/^CPU\(s\):/ { print $2 }')
+    threadsperL3=$(echo $(($threads/$l3Caches)))
+    threadsPerCore=$(lscpu | awk '/^Thread\(s\) per core:/ { print $4 }')
+
+    create_simple_gui_info.mini() {
+        boinccmd --get_simple_gui_info > /run/boinc_simple_gui_info;
+        activeWUnames=$(awk -F": " '/WU name:/ { print $2 }' /run/boinc_simple_gui_info);
+        for WUname in $activeWUnames; do
+                printf "$WUname ";
+                grep -A 15 "WU name: ${WUname}" /run/boinc_simple_gui_info | awk -F": | " '/resources|PID|active_task_state/ { print $5 }' | xargs ;
+        done > /run/boinc_simple_gui_info.mini
+    }
+
+    create_simple_gui_info.mini
+
+    # Array with number of available threads per L3:
+    L3=0; 
+    if [[ $physOnly == "true" ]]; then
+        while [[ $L3 -lt $l3Caches ]]; do
+            threads=$(echo "$threadsperL3/$threadsPerCore" | bc)
+            threadsAvail+=($threads);
+            ((L3++));
+        done
+    else
+        while [[ $L3 -lt $l3Caches ]]; do
+            threadsAvail+=($threadsperL3);
+            ((L3++));
+        done
+    fi
+ 
+
+    # Array with actual CPU cores/threads per L3
+    L3=0; while [[ $L3 -lt $l3Caches ]]; do
+        # L3 = array index
+        # CPUs = content to be worked with
+        if [[ $physOnly == "true" ]]; then
+            # $numFirstCores will be the number of real cores per L3
+            numFirstCores=$(($threadsperL3/$threadsPerCore))
+            cpuList=$(lscpu -p | awk -v l3=$L3 -F "," '{ if($9==l3) print $1 }' | head -${numFirstCores} | xargs | sed 's/ /,/g')
+        else
+            cpuList=$(lscpu -p | awk -v l3=$L3 -F "," '{ if($9==l3) print $1 }' | xargs | sed 's/ /,/g')
+        fi
+        threads[$L3]=$cpuList
+        echo "L3 #$L3: ${threadsAvail[L3]}t - ${threads[L3]}"
+        ((L3++))
+    done
+    initialCapacity=$(echo ${threadsAvail[@]} | sed 's/ /+/g' | bc)
+
+    processIDs=$(awk -v name=${matchWUname} '/ EXECUTING / { if($1~name) print $4 }' /run/boinc_simple_gui_info.mini )
+    echo $processIDs
+    if [[ $processIDs == "" ]]; then    
+        echo "No processes match provided WU name"
+    fi
+    for processID in $processIDs; do
+        remainCapacity=$(echo ${threadsAvail[@]} | sed 's/ /+/g' | bc)
+        if [[ $remainCapacity -lt ${CPUreq} ]]; then
+            echo
+            echo "Have WUs but not enough capacity (${remainCapacity}/${initialCapacity})"
+            echo "Active WUs matching your WU name:"
+            grep "${matchWUname}.* EXECUTING " /run/boinc_simple_gui_info.mini | sed 's/^/  /g'
+            exit 2
+        fi
+        
+        # get CPU usage per process
+        CPUreq=$(awk -v pid=${processID} '{ if($4==pid) print $3 }' /run/boinc_simple_gui_info.mini)
+        L3=0; while [[ $L3 -lt $l3Caches ]]; do
+            if [[ ${threadsAvail[L3]} -ge ${CPUreq} ]]; then
+                cpuList=$(echo ${threads[L3]})
+                echo taskset -a -p -c ${cpuList} ${processID}
+                taskset -a -p -c ${cpuList} ${processID} >&2 >/dev/null
+                newThreadsAvail=$((${threadsAvail[L3]}-${CPUreq}))
+                threadsAvail[L3]=${newThreadsAvail}
+                break
+            fi
+            ((L3++))
+        done
+
+    done
+    #echo "Remaining capacity: ${threadsAvail[@]}"
+    unset threadsAvail
+}
+
+
+while getopts ehuvpl:nk:s: opt
 do
    case $opt in
         l) loop=$OPTARG; echo "Executing every $loop seconds";;
-        s) string=$OPTARG;;
         k) CCXperWU=$OPTARG;;
         h) help;;
-        e) eval;;
+        i) info;;
+        n) newAlgo=true;;
         u) update_script;;
         p) physOnly=true;;
+        s) sflag=true; string=$OPTARG;;
         v) version;;
         *) help;;
    esac
 done
 
-if [[ -z $string ]]; then
-    echo "No process defined, can't continue"
+#if [[ -z $string ]]; then
+#    echo "No process defined, can't continue"
+#    exit 1
+#fi
+if [[ -z $sflag ]]; then
+    echo "Error: flag -s is required" 
+    help
     exit 1
 fi
 
+if [[ ! $newAlgo ]]; then
+    algo=classic_algo
+else
+    algo=new_algo
+fi
+
 if [[ -z $loop ]]; then
-    main $string $physOnly
+    $algo $string $physOnly
     exit 0
 else
     while true; do 
-        main $string $physOnly
+        $algo $string $physOnly
         sleep $loop
     done
 fi
