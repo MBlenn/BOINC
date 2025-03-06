@@ -1,4 +1,6 @@
 #!/usr/bin/bash
+# v20250306
+#   - in -n use pstree to find and taskset all sub processes of the PID known to BOINC
 # v20250305
 #   - use -n for new algo that allows multiple WUs per L3, combine with -s (req) and -p (optional)
 #   - fixed -v which didn't show Github version correctly
@@ -180,6 +182,10 @@ new_algo() {
     done
     initialCapacity=$(echo ${threadsAvail[@]} | sed 's/ /+/g' | bc)
 
+    #
+    # Get the process IDs as known to BOINC
+    # The main processes might spawn further processes later on, we will resolve them at a later stage
+    #
     processIDs=$(awk -v name=${matchWUname} '/ EXECUTING / { if($1~name) print $4 }' /run/boinc_simple_gui_info.mini )
     echo $processIDs
     if [[ $processIDs == "" ]]; then    
@@ -187,6 +193,7 @@ new_algo() {
     fi
     for processID in $processIDs; do
         remainCapacity=$(echo ${threadsAvail[@]} | sed 's/ /+/g' | bc)
+        echo "Remaining capacity: $remainCapacity"
         if [[ $remainCapacity -lt ${CPUreq} ]]; then
             echo
             echo "Have WUs but not enough capacity (${remainCapacity}/${initialCapacity})"
@@ -197,11 +204,21 @@ new_algo() {
         
         # get CPU usage per process
         CPUreq=$(awk -v pid=${processID} '{ if($4==pid) print $3 }' /run/boinc_simple_gui_info.mini)
+        #echo "CPUreq: $CPUreq"
         L3=0; while [[ $L3 -lt $l3Caches ]]; do
+            #echo "${threadsAvail[L3]}"
             if [[ ${threadsAvail[L3]} -ge ${CPUreq} ]]; then
                 cpuList=$(echo ${threads[L3]})
-                echo taskset -a -p -c ${cpuList} ${processID}
-                taskset -a -p -c ${cpuList} ${processID} >&2 >/dev/null
+                #
+                # We have a process ID and some cores to run on,
+                # lets make sure we get all child processes and run taskset against all of them
+                #
+                for process in $(pstree -Acp ${processID} | sed 's/[-+|`]/ /g' | xargs); do 
+                    PID=$(echo $process | awk -F"[()]" '{ print $2 }')
+                    echo taskset -a -p -c ${cpuList} ${PID}
+                    #taskset -a -p -c ${cpuList} ${PID}
+                    taskset -a -p -c ${cpuList} ${PID} >&2 >/dev/null
+                done
                 newThreadsAvail=$((${threadsAvail[L3]}-${CPUreq}))
                 threadsAvail[L3]=${newThreadsAvail}
                 break
@@ -210,7 +227,7 @@ new_algo() {
         done
 
     done
-    #echo "Remaining capacity: ${threadsAvail[@]}"
+    echo "Remaining capacity: ${threadsAvail[@]}"
     unset threadsAvail
 }
 
