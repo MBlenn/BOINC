@@ -1,4 +1,5 @@
 #!/bin/bash
+# v20250327 - fixed Yoyo support
 # v20241111 - WU length comparison now works with sub 1s tasks
 # v20240422 - support for Einstein added
 #           - display ARM CPU ident if available
@@ -58,29 +59,29 @@ if [[ ! $FULLURL =~ "einsteinathome" ]]; then
 
 	while read line; do
 		if [[ $URL =~ "www.primegrid.com" ]]; then 
-			#echo "PrimeGrid"
 			line=$(echo $line | sed 's/\[Proof task\] //g;s/\[Main task\] //g;s/(1^st) //g;s/\[[0-9][0-9]*]//g')
 		fi
-		echo ${line} | grep -q validated && T1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $1 }' | tr -d -s '.|,' '')
-    	echo ${line} | grep -q validated && T2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $2 }' | tr -d -s '.|,' '')
-    	echo ${line} | grep -q validated && C1=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $3 }' | tr -d -s '.|,' '')
-    	echo ${line} | grep -q validated && C2=$(echo ${line} | awk -F'validated' '{ print $2 }' | awk '{ print $4 }' | tr -d -s '.|,' '')
+		echo ${line} | egrep -q "Done|validated" && T1=$(echo ${line} | awk -F'Done |validated ' '{ print $2 }' | awk '{ print $1 }' | tr -d -s '.|,' '')
+		echo ${line} | egrep -q "Done|validated" && T2=$(echo ${line} | awk -F'Done |validated ' '{ print $2 }' | awk '{ print $2 }' | tr -d -s '.|,' '')
+		echo ${line} | egrep -q "Done|validated" && C1=$(echo ${line} | awk -F'Done |validated ' '{ print $2 }' | awk '{ print $3 }' | tr -d -s '.|,' '')
+		echo ${line} | egrep -q "Done|validated" && C2=$(echo ${line} | awk -F'Done |validated ' '{ print $2 }' | awk '{ print $4 }' | tr -d -s '.|,' '')
 	
+		#echo "T1: $T1, T2: $T2, C1: $C1, C2: $C2"
 		echo $C2 |egrep -q "^([0-9]*,)*([0-9]*)+\.[0-9][0-9]";
 
 		if [[ $? == 0 ]]; then
 			# C2 is numerical, so claimed/granted based
-	        GRANTED=$(echo $C2 | tr -d -s '.|,' '')
-    	else
+	       		GRANTED=$(echo $C2 | tr -d -s '.|,' '')
+    		else
 			# C2 is not numerical, so not claimed/granted based
-        	GRANTED=$(echo $C1 | tr -d -s '.|,' '')
-    	fi
+        		GRANTED=$(echo $C1 | tr -d -s '.|,' '')
+    		fi
 	
-    	if [[ $T1 -gt $T2 ]]; then
-        	echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
-    	else
-        	echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
-    	fi;
+    		if [[ $T1 -gt $T2 ]]; then
+        		echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
+    		else
+        		echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
+    		fi;
 	done < /tmp/WU_all_data.raw
 	lynx -nomargins -dont_wrap_pre --dump "${URL}show_host_detail.php?hostid=${HOSTID}" > /tmp/host_details
 	CPUstring=$(cat /tmp/host_details | grep -A1 "CPU type" | xargs )
@@ -131,17 +132,17 @@ else
 	
 	while read line; do
 		echo ${line} | grep -q validated &&      T1=$(echo ${line} | awk '{ print $16 }' | tr -d -s '.|,' '')
-    	echo ${line} | grep -q validated &&      T2=$(echo ${line} | awk '{ print $17 }' | tr -d -s '.|,' '')
-    	echo ${line} | grep -q validated && GRANTED=$(echo ${line} | awk '{ print $18 }' | tr -d -s '.|,' '')
+    		echo ${line} | grep -q validated &&      T2=$(echo ${line} | awk '{ print $17 }' | tr -d -s '.|,' '')
+    		echo ${line} | grep -q validated && GRANTED=$(echo ${line} | awk '{ print $18 }' | tr -d -s '.|,' '')
     
-    	T1=$(echo "scale=0; ${T1}*100" | bc -l)
-    	T2=$(echo "scale=0; ${T2}*100" | bc -l)
+    		T1=$(echo "scale=0; ${T1}*100" | bc -l)
+    		T2=$(echo "scale=0; ${T2}*100" | bc -l)
 		GRANTED=$(echo "scale=0; ${GRANTED}*100" | bc -l)
-    	if (( $(echo "${T1} > ${T2}" | bc -l) )); then
-        	echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
-    	else
-        	echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
-    	fi;
+    		if (( $(echo "${T1} > ${T2}" | bc -l) )); then
+        		echo "${T1} ${GRANTED}" >> /tmp/WU_runtime_granted;
+    		else
+        		echo "${T2} ${GRANTED}" >> /tmp/WU_runtime_granted;
+    		fi;
 	done < /tmp/WU_all_data.raw
 
 	lynx -nomargins -dont_wrap_pre --dump "https://einsteinathome.org/de/host/${HOSTID}" > /tmp/host_details
@@ -188,7 +189,7 @@ FULLSYSTEMPERDAY=$(echo "scale=1; ($NUMPROC*$COREPERDAY)" | bc -l | awk -F"." '{
 printf "%-5s" "CPU:";				printf "%$((45+printfOffset))s" "${CPU}"; echo
 printf "%-5s" "OS:";				printf "%$((45+printfOffset))s" "${OS}"; echo
 printf "%-30s" "Results fetched: ";		printf "%$((20+printfOffset))s" ${RESULTS}; echo
-printf "%-30s" "Average duration (s): ";		printf "%$((20+printfOffset))s" ${AVGTIME}; echo
+printf "%-30s" "Average duration (s): ";	printf "%$((20+printfOffset))s" ${AVGTIME}; echo
 printf "%-30s" "Average credit: ";		printf "%$((20+printfOffset))s" ${AVGCREDIT}; echo
 printf "%-30s" "Number of reported cores: "; 	printf "%$((20+printfOffset))s" ${NUMPROC}; echo
 printf "%-30s" "Per core per day: "; 		printf "%$((20+printfOffset))s" ${COREPERDAY}; echo
