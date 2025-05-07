@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# v20250507
+# v20250508
 #	- if boinc exe exists in instance directory, use it instead of the one in PATH	
 # v20240507
 #	- another fix to ignore niu_max_ncpus_pct in global_prefs as well, when using -U
@@ -184,7 +184,7 @@ start_boinc() {
         	list_instance ${INSTANCE_PORT}
 		else
 			# make sure ownership of all files in ${INSTANCE_DIR} is correct
-			echo chown -R ${BOINCUSER}:${BOINCGROUP} ${INSTANCE_DIR}
+			chown -R ${BOINCUSER}:${BOINCGROUP} ${INSTANCE_DIR}
 
         	echo "Starting BOINC instance ${INSTANCE_PORT}"
 		if [[ -e ${INSTANCE_DIR}/boinc ]]; then 
@@ -471,7 +471,7 @@ create_new_boinc_instance () {
 	done
 	
     # make sure ownership of all files in ${INSTANCE_DIR} is correct
-    # chown -R ${BOINCUSER}:${BOINCGROUP} ${INSTANCE_DIR}
+    chown -R ${BOINCUSER}:${BOINCGROUP} ${INSTANCE_DIR}
 
 
 	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
