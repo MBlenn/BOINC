@@ -1,5 +1,7 @@
 #!/bin/bash
 #
+# v20250507
+#	- if boinc exe exists in instance directory, use it instead of the one in PATH	
 # v20240507
 #	- another fix to ignore niu_max_ncpus_pct in global_prefs as well, when using -U
 # v20240308
@@ -166,11 +168,11 @@ f_check_change_shell() {
 
 start_boinc() {
 	SLEEP=5
-    if [[ $1 == "boinc_31416" || $1 == "31416" ]]; then
-        service boinc-client start
+	if [[ $1 == "boinc_31416" || $1 == "31416" ]]; then
+        	service boinc-client start
 	else
-     	INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
-       	INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
+		INSTANCE_PORT=$(echo $1 | sed 's/boinc_//')
+		INSTANCE_DIR=${INSTANCE_HOME}/boinc_${INSTANCE_PORT}
 
 		f_check_change_shell
 
@@ -182,10 +184,16 @@ start_boinc() {
         	list_instance ${INSTANCE_PORT}
 		else
 			# make sure ownership of all files in ${INSTANCE_DIR} is correct
-			chown -R ${BOINCUSER}:${BOINCGROUP} ${INSTANCE_DIR}
+			echo chown -R ${BOINCUSER}:${BOINCGROUP} ${INSTANCE_DIR}
 
         	echo "Starting BOINC instance ${INSTANCE_PORT}"
-        	su - ${BOINCUSER} -c "boinc --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}" && printf "Started (RC=$?), sleeping ${SLEEP} seconds"
+		if [[ -e ${INSTANCE_DIR}/boinc ]]; then 
+			boincExecutable=${INSTANCE_DIR}/boinc; 
+		else 
+			boincExecutable=boinc; 
+		fi
+
+        	su - ${BOINCUSER} -c "$boincExecutable --allow_multiple_clients --daemon --dir ${INSTANCE_DIR} --gui_rpc_port ${INSTANCE_PORT}" && printf "Started (RC=$?), sleeping ${SLEEP} seconds"
 			sleep_counter ${SLEEP}
         	# print overview
         	echo;
@@ -463,7 +471,7 @@ create_new_boinc_instance () {
 	done
 	
     # make sure ownership of all files in ${INSTANCE_DIR} is correct
-    chown -R ${BOINCUSER}:${BOINCGROUP} ${INSTANCE_DIR}
+    # chown -R ${BOINCUSER}:${BOINCGROUP} ${INSTANCE_DIR}
 
 
 	BOINCPWD=$(f_get_boincpwd "${INSTANCE_HOME}/${INSTANCE_DIR}/gui_rpc_auth.cfg")
