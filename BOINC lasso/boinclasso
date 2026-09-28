@@ -1,5 +1,6 @@
 #!/usr/bin/bash
 # v20260928
+#   - added -b port to query a boinccmd GUI RPC instance on a non-default port (-n only)
 #   - added -o to use the other half of physical threads with -p (some CPUs/users prefer the second half)
 #   - added virtualization detection warning (script targets physical hardware only)
 #   - added -i to getopts so the info function is actually reachable
@@ -44,6 +45,7 @@ help() {
     echo "  -u          - update script from GitHub"
     echo "  -p          - ignore SMT and pin 1 thread per physical core"
     echo "  -o          - with -p, use the other half of physical threads"
+    echo "  -b port     - boinccmd GUI RPC port, if BOINC runs on a non-default port"
     echo "  -v          - show local and GitHub version"
     exit 0
 }
@@ -186,13 +188,22 @@ new_algo() {
     threadsperL3=$(echo $(($threads/$l3Caches)))
     threadsPerCore=$(lscpu | awk '/^Thread\(s\) per core:/ { print $4 }')
 
+    boinccmdOpts=()
+    infoFile=/run/boinc_simple_gui_info
+    infoFileMini=/run/boinc_simple_gui_info.mini
+    if [[ -n $boincPort ]]; then
+        boinccmdOpts=(--host "localhost:${boincPort}")
+        infoFile="/run/boinc_simple_gui_info_${boincPort}"
+        infoFileMini="/run/boinc_simple_gui_info_${boincPort}.mini"
+    fi
+
     create_simple_gui_info.mini() {
-        boinccmd --get_simple_gui_info > /run/boinc_simple_gui_info;
-        activeWUnames=$(awk -F": " '/WU name:/ { print $2 }' /run/boinc_simple_gui_info);
+        boinccmd "${boinccmdOpts[@]}" --get_simple_gui_info > "$infoFile";
+        activeWUnames=$(awk -F": " '/WU name:/ { print $2 }' "$infoFile");
         for WUname in $activeWUnames; do
                 printf "$WUname ";
-                grep -A 15 "WU name: ${WUname}" /run/boinc_simple_gui_info | awk -F": | " '/resources|PID|active_task_state/ { print $5 }' | xargs ;
-        done > /run/boinc_simple_gui_info.mini
+                grep -A 15 "WU name: ${WUname}" "$infoFile" | awk -F": | " '/resources|PID|active_task_state/ { print $5 }' | xargs ;
+        done > "$infoFileMini"
     }
 
     create_simple_gui_info.mini
@@ -238,7 +249,7 @@ new_algo() {
     # Get the process IDs as known to BOINC
     # The main processes might spawn further processes later on, we will resolve them at a later stage
     #
-    processIDs=$(awk -v name=${matchWUname} '/ EXECUTING / { if($1~name) print $4 }' /run/boinc_simple_gui_info.mini )
+    processIDs=$(awk -v name=${matchWUname} '/ EXECUTING / { if($1~name) print $4 }' "$infoFileMini" )
     echo $processIDs
     if [[ $processIDs == "" ]]; then    
         echo "No processes match provided WU name"
@@ -250,7 +261,7 @@ new_algo() {
             echo
             echo "Have WUs but not enough capacity (${remainCapacity}/${initialCapacity})"
             echo "Active WUs matching your WU name:"
-            grep "${matchWUname}.* EXECUTING " /run/boinc_simple_gui_info.mini | sed 's/^/  /g'
+            grep "${matchWUname}.* EXECUTING " "$infoFileMini" | sed 's/^/  /g'
             exit 2
         fi
         
@@ -284,7 +295,7 @@ new_algo() {
 }
 
 
-while getopts hiuvpol:nk:s: opt
+while getopts hiuvpol:nk:s:b: opt
 do
    case $opt in
         l) loop=$OPTARG; echo "Executing every $loop seconds";;
@@ -295,6 +306,7 @@ do
         u) update_script;;
         p) physOnly=true;;
         o) secondHalf=true;;
+        b) boincPort=$OPTARG;;
         s) sflag=true; string=$OPTARG;;
         v) version;;
         *) help;;
