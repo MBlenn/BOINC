@@ -1,5 +1,6 @@
 #!/usr/bin/bash
 # v20260928
+#   - added -o to use the other half of physical threads with -p (some CPUs/users prefer the second half)
 #   - added virtualization detection warning (script targets physical hardware only)
 #   - added -i to getopts so the info function is actually reachable
 #   - removed unused -e (evaluate) placeholder, was never implemented
@@ -42,7 +43,8 @@ help() {
     echo "  -n          - new algo, supports multiple WUs per L3"
     echo "  -u          - update script from GitHub"
     echo "  -p          - ignore SMT and pin 1 thread per physical core"
-    echo "  -v          - show local and GitHub version" 
+    echo "  -o          - with -p, use the other half of physical threads"
+    echo "  -v          - show local and GitHub version"
     exit 0
 }
 
@@ -91,7 +93,11 @@ classic_algo() {
         if [[ $physOnly == "true" ]]; then
             cpuListLines=$(lscpu -e | egrep "${grepList}" | awk '{ print $1 }' | wc -l)
             numFirstCores=$(($cpuListLines/$threadsPerCore))
-            cpuList=$(lscpu -e | egrep "${grepList}" | tail -${numFirstCores} | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+            if [[ $secondHalf == "true" ]]; then
+                cpuList=$(lscpu -e | egrep "${grepList}" | head -${numFirstCores} | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+            else
+                cpuList=$(lscpu -e | egrep "${grepList}" | tail -${numFirstCores} | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+            fi
         else
             cpuList=$(lscpu -e | egrep "${grepList}" | awk '{ print $1 }' | xargs | sed 's/ /,/g')
         fi
@@ -214,7 +220,11 @@ new_algo() {
         if [[ $physOnly == "true" ]]; then
             # $numFirstCores will be the number of real cores per L3
             numFirstCores=$(($threadsperL3/$threadsPerCore))
-            cpuList=$(lscpu -p | awk -v l3=$L3 -F "," '{ if($9==l3) print $1 }' | head -${numFirstCores} | xargs | sed 's/ /,/g')
+            if [[ $secondHalf == "true" ]]; then
+                cpuList=$(lscpu -p | awk -v l3=$L3 -F "," '{ if($9==l3) print $1 }' | tail -${numFirstCores} | xargs | sed 's/ /,/g')
+            else
+                cpuList=$(lscpu -p | awk -v l3=$L3 -F "," '{ if($9==l3) print $1 }' | head -${numFirstCores} | xargs | sed 's/ /,/g')
+            fi
         else
             cpuList=$(lscpu -p | awk -v l3=$L3 -F "," '{ if($9==l3) print $1 }' | xargs | sed 's/ /,/g')
         fi
@@ -274,7 +284,7 @@ new_algo() {
 }
 
 
-while getopts hiuvpl:nk:s: opt
+while getopts hiuvpol:nk:s: opt
 do
    case $opt in
         l) loop=$OPTARG; echo "Executing every $loop seconds";;
@@ -284,6 +294,7 @@ do
         n) newAlgo=true;;
         u) update_script;;
         p) physOnly=true;;
+        o) secondHalf=true;;
         s) sflag=true; string=$OPTARG;;
         v) version;;
         *) help;;
