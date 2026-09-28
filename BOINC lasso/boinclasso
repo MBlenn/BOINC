@@ -1,4 +1,9 @@
 #!/usr/bin/bash
+# v20260928
+#   - added virtualization detection warning (script targets physical hardware only)
+#   - added -i to getopts so the info function is actually reachable
+#   - removed unused -e (evaluate) placeholder, was never implemented
+#   - hardened update mechanism: check download success, require interactive confirmation before overwrite
 # v20250306
 #   - in -n use pstree to find and taskset all sub processes of the PID known to BOINC
 # v20250305
@@ -33,7 +38,7 @@ help() {
     echo "  -s string   - String / process to search for"
     echo "  -k n        - Use n CCX per WU"
     echo "  -h          - This help"
-    echo "  -e          - evaluate"
+    echo "  -i          - show CPU/L3 info"
     echo "  -n          - new algo, supports multiple WUs per L3"
     echo "  -u          - update script from GitHub"
     echo "  -p          - ignore SMT and pin 1 thread per physical core"
@@ -41,7 +46,21 @@ help() {
     exit 0
 }
 
+warn_if_virtual() {
+    virtType=""
+    if command -v systemd-detect-virt >/dev/null 2>&1; then
+        virtType=$(systemd-detect-virt 2>/dev/null)
+        [[ $virtType == "none" ]] && virtType=""
+    elif grep -qi "^flags.*hypervisor" /proc/cpuinfo 2>/dev/null; then
+        virtType="unknown hypervisor"
+    fi
+    if [[ -n $virtType ]]; then
+        echo "Warning: running on virtualized hardware (${virtType}). L3/CCX topology reported by lscpu may not reflect real cache boundaries; this script is designed for physical hardware only." >&2
+    fi
+}
+
 classic_algo() {
+    warn_if_virtual
     processIDs=$(ps -ef | egrep "$(echo $1 | tr ',' '|')" | egrep -v " grep|boinclasso" | awk '{ print $2 }')
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
     numWUs=$(echo ${processIDs} | wc -w)
@@ -87,6 +106,7 @@ classic_algo() {
 }
 
 info() {
+    warn_if_virtual
     CPUtype=$(awk -F": " '/model name/ { print $2 }' /proc/cpuinfo | sort -u)
     CPUs=$(lscpu | awk '/^CPU\(s\):/ { print $2 }')
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
@@ -103,23 +123,44 @@ info() {
 update_script() {
 	if [[ $(id -u) -ne 0 ]]; then
 		echo "You need to be root to perform this operation. aborting..."
-	else
-		script_download="https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso"
-		wget -O ${FILENAME}_tmp ${script_download}
-		VERSION_OLD=$(awk '/^# v20/ { print $2 }' ${FILENAME} | sed 's/v//' | head -1)
-		VERSION_NEW=$(awk '/^# v20/ { print $2 }' ${FILENAME}_tmp | sed 's/v//' | head -1)
-		echo "OLD: $VERSION_OLD"
-		echo "NEW: $VERSION_NEW"
-
-		if [[ $VERSION_NEW -ge $VERSION_OLD ]]; then
-			chmod +x ${FILENAME}_tmp
-			mv ${FILENAME}_tmp ${FILENAME}
-		else
-			echo "Local is same or newer version than on the repo!"
-		fi
-			
+		exit 1
 	fi
-    exit
+
+	script_download="https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso"
+	if ! curl -fsSL -o "${FILENAME}_tmp" "${script_download}"; then
+		echo "Download failed, aborting update."
+		rm -f "${FILENAME}_tmp"
+		exit 1
+	fi
+
+	VERSION_OLD=$(awk '/^# v20/ { print $2 }' ${FILENAME} | sed 's/v//' | head -1)
+	VERSION_NEW=$(awk '/^# v20/ { print $2 }' ${FILENAME}_tmp | sed 's/v//' | head -1)
+
+	if [[ -z $VERSION_NEW ]]; then
+		echo "Could not determine the version of the downloaded script, aborting update."
+		rm -f "${FILENAME}_tmp"
+		exit 1
+	fi
+
+	echo "Local version:   $VERSION_OLD"
+	echo "GitHub version:  $VERSION_NEW"
+
+	if [[ $VERSION_NEW -lt $VERSION_OLD ]]; then
+		echo "Local is newer than the version on the repo, nothing to do."
+		rm -f "${FILENAME}_tmp"
+		exit 0
+	fi
+
+	read -rp "Install this version? [y/N] " confirm
+	if [[ $confirm =~ ^[Yy]$ ]]; then
+		chmod +x "${FILENAME}_tmp"
+		mv "${FILENAME}_tmp" "${FILENAME}"
+		echo "Updated."
+	else
+		echo "Update aborted."
+		rm -f "${FILENAME}_tmp"
+	fi
+    exit 0
 }
 
 version() {
@@ -131,6 +172,7 @@ version() {
 }
 
 new_algo() {
+    warn_if_virtual
 
     matchWUname=$1
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
@@ -232,7 +274,7 @@ new_algo() {
 }
 
 
-while getopts ehuvpl:nk:s: opt
+while getopts hiuvpl:nk:s: opt
 do
    case $opt in
         l) loop=$OPTARG; echo "Executing every $loop seconds";;
