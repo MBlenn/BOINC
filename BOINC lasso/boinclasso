@@ -266,7 +266,7 @@ new_algo() {
         fi
         
         # get CPU usage per process
-        CPUreq=$(awk -v pid=${processID} '{ if($4==pid) print $3 }' /run/boinc_simple_gui_info.mini)
+        CPUreq=$(awk -v pid=${processID} '{ if($4==pid) print $3 }' "$infoFileMini")
         #echo "CPUreq: $CPUreq"
         L3=0; while [[ $L3 -lt $l3Caches ]]; do
             #echo "${threadsAvail[L3]}"
