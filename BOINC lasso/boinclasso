@@ -1,4 +1,19 @@
 #!/usr/bin/bash
+# v20260929
+#   - replaced lynx with curl in version() (lynx dependency no longer needed)
+#   - inlined create_simple_gui_info.mini, it was only ever called once right
+#     after being defined
+#   - new_algo now falls back to $XDG_RUNTIME_DIR (or /tmp) for its info files
+#     when not running as root, since /run requires root to create new files
+#   - fixed -b: CPUreq lookup still read the unsuffixed default info file,
+#     causing a bash arithmetic syntax error when a port was set
+# v20260928
+#   - added -b port to query a boinccmd GUI RPC instance on a non-default port (-n only)
+#   - added -o to use the other half of physical threads with -p (some CPUs/users prefer the second half)
+#   - added virtualization detection warning (script targets physical hardware only)
+#   - added -i to getopts so the info function is actually reachable
+#   - removed unused -e (evaluate) placeholder, was never implemented
+#   - hardened update mechanism: check download success, require interactive confirmation before overwrite
 # v20250306
 #   - in -n use pstree to find and taskset all sub processes of the PID known to BOINC
 # v20250305
@@ -33,15 +48,31 @@ help() {
     echo "  -s string   - String / process to search for"
     echo "  -k n        - Use n CCX per WU"
     echo "  -h          - This help"
-    echo "  -e          - evaluate"
+    echo "  -i          - show CPU/L3 info"
     echo "  -n          - new algo, supports multiple WUs per L3"
     echo "  -u          - update script from GitHub"
     echo "  -p          - ignore SMT and pin 1 thread per physical core"
-    echo "  -v          - show local and GitHub version" 
+    echo "  -o          - with -p, use the other half of physical threads"
+    echo "  -b port     - boinccmd GUI RPC port, if BOINC runs on a non-default port"
+    echo "  -v          - show local and GitHub version"
     exit 0
 }
 
+warn_if_virtual() {
+    virtType=""
+    if command -v systemd-detect-virt >/dev/null 2>&1; then
+        virtType=$(systemd-detect-virt 2>/dev/null)
+        [[ $virtType == "none" ]] && virtType=""
+    elif grep -qi "^flags.*hypervisor" /proc/cpuinfo 2>/dev/null; then
+        virtType="unknown hypervisor"
+    fi
+    if [[ -n $virtType ]]; then
+        echo "Warning: running on virtualized hardware (${virtType}). L3/CCX topology reported by lscpu may not reflect real cache boundaries; this script is designed for physical hardware only." >&2
+    fi
+}
+
 classic_algo() {
+    warn_if_virtual
     processIDs=$(ps -ef | egrep "$(echo $1 | tr ',' '|')" | egrep -v " grep|boinclasso" | awk '{ print $2 }')
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
     numWUs=$(echo ${processIDs} | wc -w)
@@ -72,7 +103,11 @@ classic_algo() {
         if [[ $physOnly == "true" ]]; then
             cpuListLines=$(lscpu -e | egrep "${grepList}" | awk '{ print $1 }' | wc -l)
             numFirstCores=$(($cpuListLines/$threadsPerCore))
-            cpuList=$(lscpu -e | egrep "${grepList}" | tail -${numFirstCores} | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+            if [[ $secondHalf == "true" ]]; then
+                cpuList=$(lscpu -e | egrep "${grepList}" | head -${numFirstCores} | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+            else
+                cpuList=$(lscpu -e | egrep "${grepList}" | tail -${numFirstCores} | awk '{ print $1 }' | xargs | sed 's/ /,/g')
+            fi
         else
             cpuList=$(lscpu -e | egrep "${grepList}" | awk '{ print $1 }' | xargs | sed 's/ /,/g')
         fi
@@ -87,6 +122,7 @@ classic_algo() {
 }
 
 info() {
+    warn_if_virtual
     CPUtype=$(awk -F": " '/model name/ { print $2 }' /proc/cpuinfo | sort -u)
     CPUs=$(lscpu | awk '/^CPU\(s\):/ { print $2 }')
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
@@ -103,34 +139,56 @@ info() {
 update_script() {
 	if [[ $(id -u) -ne 0 ]]; then
 		echo "You need to be root to perform this operation. aborting..."
-	else
-		script_download="https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso"
-		wget -O ${FILENAME}_tmp ${script_download}
-		VERSION_OLD=$(awk '/^# v20/ { print $2 }' ${FILENAME} | sed 's/v//' | head -1)
-		VERSION_NEW=$(awk '/^# v20/ { print $2 }' ${FILENAME}_tmp | sed 's/v//' | head -1)
-		echo "OLD: $VERSION_OLD"
-		echo "NEW: $VERSION_NEW"
-
-		if [[ $VERSION_NEW -ge $VERSION_OLD ]]; then
-			chmod +x ${FILENAME}_tmp
-			mv ${FILENAME}_tmp ${FILENAME}
-		else
-			echo "Local is same or newer version than on the repo!"
-		fi
-			
+		exit 1
 	fi
-    exit
+
+	script_download="https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso"
+	if ! curl -fsSL -o "${FILENAME}_tmp" "${script_download}"; then
+		echo "Download failed, aborting update."
+		rm -f "${FILENAME}_tmp"
+		exit 1
+	fi
+
+	VERSION_OLD=$(awk '/^# v20/ { print $2 }' ${FILENAME} | sed 's/v//' | head -1)
+	VERSION_NEW=$(awk '/^# v20/ { print $2 }' ${FILENAME}_tmp | sed 's/v//' | head -1)
+
+	if [[ -z $VERSION_NEW ]]; then
+		echo "Could not determine the version of the downloaded script, aborting update."
+		rm -f "${FILENAME}_tmp"
+		exit 1
+	fi
+
+	echo "Local version:   $VERSION_OLD"
+	echo "GitHub version:  $VERSION_NEW"
+
+	if [[ $VERSION_NEW -lt $VERSION_OLD ]]; then
+		echo "Local is newer than the version on the repo, nothing to do."
+		rm -f "${FILENAME}_tmp"
+		exit 0
+	fi
+
+	read -rp "Install this version? [y/N] " confirm
+	if [[ $confirm =~ ^[Yy]$ ]]; then
+		chmod +x "${FILENAME}_tmp"
+		mv "${FILENAME}_tmp" "${FILENAME}"
+		echo "Updated."
+	else
+		echo "Update aborted."
+		rm -f "${FILENAME}_tmp"
+	fi
+    exit 0
 }
 
 version() {
     localversion=$(awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
-    lastVersion=$(lynx -nomargins -dont_wrap_pre --dump https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso | awk '/^# v20/ { print $2 }' | head -1)
+    lastVersion=$(curl -fsSL https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso | awk '/^# v20/ { print $2 }' | head -1)
     echo "Local version:    $localversion"
     echo "GitHub version:   $lastVersion"
     exit 0
 }
 
 new_algo() {
+    warn_if_virtual
 
     matchWUname=$1
     l3Caches=$(lscpu -e | grep -v "CPU" | tr ':' ' ' | awk '{ print $8 }' | sort -u | wc -l)
@@ -138,16 +196,27 @@ new_algo() {
     threadsperL3=$(echo $(($threads/$l3Caches)))
     threadsPerCore=$(lscpu | awk '/^Thread\(s\) per core:/ { print $4 }')
 
-    create_simple_gui_info.mini() {
-        boinccmd --get_simple_gui_info > /run/boinc_simple_gui_info;
-        activeWUnames=$(awk -F": " '/WU name:/ { print $2 }' /run/boinc_simple_gui_info);
-        for WUname in $activeWUnames; do
-                printf "$WUname ";
-                grep -A 15 "WU name: ${WUname}" /run/boinc_simple_gui_info | awk -F": | " '/resources|PID|active_task_state/ { print $5 }' | xargs ;
-        done > /run/boinc_simple_gui_info.mini
-    }
+    if [[ $(id -u) -eq 0 ]]; then
+        infoDir=/run
+    else
+        infoDir=${XDG_RUNTIME_DIR:-/tmp}
+    fi
 
-    create_simple_gui_info.mini
+    boinccmdOpts=()
+    infoFile="${infoDir}/boinc_simple_gui_info"
+    infoFileMini="${infoDir}/boinc_simple_gui_info.mini"
+    if [[ -n $boincPort ]]; then
+        boinccmdOpts=(--host "localhost:${boincPort}")
+        infoFile="${infoDir}/boinc_simple_gui_info_${boincPort}"
+        infoFileMini="${infoDir}/boinc_simple_gui_info_${boincPort}.mini"
+    fi
+
+    boinccmd "${boinccmdOpts[@]}" --get_simple_gui_info > "$infoFile"
+    activeWUnames=$(awk -F": " '/WU name:/ { print $2 }' "$infoFile")
+    for WUname in $activeWUnames; do
+            printf "$WUname ";
+            grep -A 15 "WU name: ${WUname}" "$infoFile" | awk -F": | " '/resources|PID|active_task_state/ { print $5 }' | xargs ;
+    done > "$infoFileMini"
 
     # Array with number of available threads per L3:
     L3=0; 
@@ -172,7 +241,11 @@ new_algo() {
         if [[ $physOnly == "true" ]]; then
             # $numFirstCores will be the number of real cores per L3
             numFirstCores=$(($threadsperL3/$threadsPerCore))
-            cpuList=$(lscpu -p | awk -v l3=$L3 -F "," '{ if($9==l3) print $1 }' | head -${numFirstCores} | xargs | sed 's/ /,/g')
+            if [[ $secondHalf == "true" ]]; then
+                cpuList=$(lscpu -p | awk -v l3=$L3 -F "," '{ if($9==l3) print $1 }' | tail -${numFirstCores} | xargs | sed 's/ /,/g')
+            else
+                cpuList=$(lscpu -p | awk -v l3=$L3 -F "," '{ if($9==l3) print $1 }' | head -${numFirstCores} | xargs | sed 's/ /,/g')
+            fi
         else
             cpuList=$(lscpu -p | awk -v l3=$L3 -F "," '{ if($9==l3) print $1 }' | xargs | sed 's/ /,/g')
         fi
@@ -186,7 +259,7 @@ new_algo() {
     # Get the process IDs as known to BOINC
     # The main processes might spawn further processes later on, we will resolve them at a later stage
     #
-    processIDs=$(awk -v name=${matchWUname} '/ EXECUTING / { if($1~name) print $4 }' /run/boinc_simple_gui_info.mini )
+    processIDs=$(awk -v name=${matchWUname} '/ EXECUTING / { if($1~name) print $4 }' "$infoFileMini" )
     echo $processIDs
     if [[ $processIDs == "" ]]; then    
         echo "No processes match provided WU name"
@@ -198,12 +271,12 @@ new_algo() {
             echo
             echo "Have WUs but not enough capacity (${remainCapacity}/${initialCapacity})"
             echo "Active WUs matching your WU name:"
-            grep "${matchWUname}.* EXECUTING " /run/boinc_simple_gui_info.mini | sed 's/^/  /g'
+            grep "${matchWUname}.* EXECUTING " "$infoFileMini" | sed 's/^/  /g'
             exit 2
         fi
         
         # get CPU usage per process
-        CPUreq=$(awk -v pid=${processID} '{ if($4==pid) print $3 }' /run/boinc_simple_gui_info.mini)
+        CPUreq=$(awk -v pid=${processID} '{ if($4==pid) print $3 }' "$infoFileMini")
         #echo "CPUreq: $CPUreq"
         L3=0; while [[ $L3 -lt $l3Caches ]]; do
             #echo "${threadsAvail[L3]}"
@@ -232,7 +305,7 @@ new_algo() {
 }
 
 
-while getopts ehuvpl:nk:s: opt
+while getopts hiuvpol:nk:s:b: opt
 do
    case $opt in
         l) loop=$OPTARG; echo "Executing every $loop seconds";;
@@ -242,6 +315,8 @@ do
         n) newAlgo=true;;
         u) update_script;;
         p) physOnly=true;;
+        o) secondHalf=true;;
+        b) boincPort=$OPTARG;;
         s) sflag=true; string=$OPTARG;;
         v) version;;
         *) help;;
