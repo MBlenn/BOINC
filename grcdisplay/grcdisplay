@@ -1,1 +1,312 @@
+#!/usr/bin/bash
+#
+# v20260911 - adjusted for current superblock format
+# v20220202 - initial release
+#
 
+#
+# Own Cross Project ID (CPID)
+#
+# CPID=1303b8f1ec9a406508acf860f3ad9c9f
+
+#
+# REMOTE RPC
+#
+# To enable and use remote RPC, make sure below variables are set in gridcoinresearch.conf
+# rpcuser=gridcoinrpc
+# rpcpassword=supercomplexpassword
+# rpcallowip=192.168.2.221
+# server=1
+# listen=1
+#
+
+#
+# IP or resolvable hostname of wallet, uncomment to activate
+#
+# RPCCONNECT=192.168.2.4
+
+#
+# Password as defined in gridcoinresearch.conf, uncomment to activate
+#
+# RPCPASSWORD=supercomplexpassword
+
+if [[ ${RPCPASSWORD} != "" ]] && [[ ${RPCCONNECT} != "" ]]; then
+	gridcoinresearchd="gridcoinresearchd -rpcconnect=${RPCCONNECT} -rpcpassword=${RPCPASSWORD} "
+else
+	gridcoinresearchd="gridcoinresearchd"
+fi
+
+which bc > /dev/null
+if [[ $? -ne 0 ]]; then echo "This script requires bc for calculations, please install it."; exit 1; fi
+which gridcoinresearchd > /dev/null
+if [[ $? -ne 0 ]]; then echo "This script requires gridcoinresearchd to be installed & available via PATH, please install it."; exit 1; fi
+
+while getopts tC: opt
+do
+   case $opt in
+        t) TIME=Y;;
+        C) CPID=$OPTARG;;
+   esac
+done
+
+myCPID=$($gridcoinresearchd getmininginfo | awk -F "\"" '/CPID/ { print $4 }')
+if [[ ${CPID} == "" ]]; then
+	CPIDlower=$(echo ${CPID} | tr "[:upper:]" "[:lower:]")
+        if [[ ! ${CPIDlower} == ${myCPID} ]]; then
+                CPIDlower=${myCPID}
+        fi
+else
+	CPIDlower=$(echo ${CPID} | tr "[:upper:]" "[:lower:]")
+fi
+
+
+printf=/usr/bin/printf
+datetime=$(date +"%Y-%m-%d_%H:%M")
+
+if [[ ${TIME} == "Y" ]]; then
+	f_datetime() {
+		datetime=$(date +"%Y-%m-%d_%H:%M")
+		$printf "%-17s" "${datetime}"
+	}
+else
+	datetime=$(date +"%Y-%m-%d_%H:%M")
+	f_datetime() {
+		$printf "";	
+	}
+fi
+
+main_header() {
+	f_datetime
+	echo "Generated at ${datetime}"
+	f_datetime
+	echo
+	f_datetime
+	$printf "%-8s" "CPID"
+        $printf "%-10s" "${CPIDlower}"
+
+	if [[ ${CPIDlower} == ${myCPID} ]]; then
+	        $printf "%-8s" " (mine)"
+	else
+	        $printf "%-8s" " (not mine)"
+	fi
+	echo 
+}
+
+
+get_own_CPID() {
+	$gridcoinresearchd getmininginfo | awk -F "\"" '/CPID/ { print $4 }'
+}
+
+myCPID=$(get_own_CPID)
+
+get_explainmagnitude() {
+	for BOINC_PROJECT in $($gridcoinresearchd explainmagnitude ${CPID} | awk '/"project"/ { print $2 }' | sed 's/["|,]//g'); do 
+		$gridcoinresearchd explainmagnitude ${CPID} | grep -A 2 $BOINC_PROJECT | sed 's/["|,]//g' | awk '{ print $2 }' | xargs ; 
+	done > /tmp/explainmagnitude
+}
+
+get_superblock_timestamp() {
+        $gridcoinresearchd superblockage | awk -F "\"" '/Superblock Timestamp/ { print $4 }' | sed 's/[,|"]//'
+}
+
+get_magnitude() {
+	$gridcoinresearchd magnitude ${CPID} | awk -F "[ |,]" '/Magnitude \(Last Superblock\)/ { print $6 }'
+}
+
+get_magnitude_EE14d() {
+	$gridcoinresearchd magnitude ${CPID} | awk '/Expected Earnings \(14 days\)/ { print $5 }' | sed 's/,//g' 
+}
+
+get_magnitude_EE1d() {
+        $gridcoinresearchd magnitude ${CPID} | awk '/Expected Earnings \(Daily\)/ { print $4 }' | sed 's/,//g'
+}
+
+get_magnitude_accrualdays() {
+	$gridcoinresearchd magnitude ${CPID} | awk '/Accrual Days/ { print $3 }' | sed 's/,//g'
+}
+
+get_owed_reward() {
+	$gridcoinresearchd magnitude ${CPID} | awk '/Owed/ { print $2 }' | sed 's/,//g'
+}
+
+get_magnitude_lt_research_paid() {
+        $gridcoinresearchd magnitude ${CPID} | awk '/Lifetime Research Paid/ { print $4 }' | sed 's/,//g'
+}
+
+get_magnitude_current_mag_unit() {
+        $gridcoinresearchd magnitude ${CPID} | awk '/Current Magnitude Unit/ { print $4 }' | sed 's/,//g'
+}
+
+get_listprojects() {
+	$gridcoinresearchd listprojects | egrep "\": {" | awk -F'\"' '{ print $2 }'
+}
+
+get_currentcontractaverage_rac() {
+	PROJECT=$1
+	$gridcoinresearchd currentcontractaverage | awk '/'$PROJECT'/ { getline; getline; if ($1 ~ /"rac"/) print $2 }' | sed 's/,//'
+	#$gridcoinresearchd currentcontractaverage | awk '/'$PROJECT'/ { getline; getline; if ($1 ~ /"rac"/) print $2; else print "undefined" }' | sed 's/,//'
+}
+
+get_mininginfo_timetostake() {
+	$gridcoinresearchd getmininginfo | awk -F':' '/time-to-stake_days/ { print $2 }' | sed 's/[ ,]//g'
+}
+
+get_number_whitelisted_projects() {
+	$gridcoinresearchd listprojects | egrep -c "\": {"
+}
+
+get_own_balance() {
+	$gridcoinresearchd getinfo | awk -F':' '/balance/ { print $2 }' | sed 's/[ ,]//g'
+}
+
+
+list_general(){
+	earnings14d=$(get_magnitude_EE14d)
+	earnings1d=$(get_magnitude_EE1d)
+	accrualdays=$(get_magnitude_accrualdays)
+	timetostake=$(get_mininginfo_timetostake)
+	superblock_timestamp=$(get_superblock_timestamp)
+	owedreward=$(get_owed_reward)
+	lifetimeresearchpaid=$(get_magnitude_lt_research_paid)
+	balance=$(get_own_balance)
+	currentmagunit=$(get_magnitude_current_mag_unit)
+	currentmagnitude=$(get_magnitude)
+        numprojects=$(get_number_whitelisted_projects)
+        magperproject=$(echo "115000/${numprojects}" | bc -l)
+
+
+	f_datetime
+	$printf "%-30s" "Superblock timestamp"
+	$printf "%20s" "${superblock_timestamp}"
+	echo
+
+	f_datetime
+	$printf "%-30s" "Cur. magnitude"
+	$printf "%20.2f" "${currentmagnitude}"
+	echo
+
+	f_datetime
+	$printf "%-30s" "Cur. mag unit"
+	$printf "%20.2f" "${currentmagunit}"
+	echo
+
+        f_datetime
+        $printf "%-30s" "Number of whitelisted projects"
+        $printf "%20.0f" "${numprojects}"
+        echo
+
+        f_datetime
+        $printf "%-30s" "Mag per project"
+        $printf "%20.2f" "${magperproject}"
+        echo
+
+	f_datetime
+	$printf "%-30s" "Est. GRC earnings (1d)"
+	$printf "%20.2f" "${earnings1d}"
+	echo
+
+	f_datetime
+	$printf "%-30s" "Est. GRC earnings (14d)"
+	$printf "%20.2f" "${earnings14d}"
+	echo
+
+	f_datetime
+	$printf "%-30s" "Life time research paid"
+	$printf "%20.2f" "${lifetimeresearchpaid}"
+	echo
+
+        f_datetime
+        $printf "%-30s" "Pending reward"
+        $printf "%20.2f" "${owedreward}"
+        echo
+
+        f_datetime
+        $printf "%-30s" "Days since stake"
+        $printf "%20.2f" "${accrualdays}"
+	echo
+
+	if [[ ${CPIDlower} == ${myCPID} ]]; then
+
+		f_datetime
+		$printf "%-30s" "Time to stake (days)"
+		$printf "%20.2f" "${timetostake}"
+		echo
+
+		f_datetime
+        	$printf "%-30s" "Balance "
+		$printf "%20.2f" "${balance}"
+		echo
+	fi
+
+	f_datetime
+	echo
+}
+
+list_projects() {
+	f_datetime
+	$printf "%-20s" "PROJECT"
+	$printf "%10s" "CPID RAC"
+	$printf "%12s" "Total RAC"
+	$printf "%16s" "% of total RAC"
+	$printf "%7s" "MAG"
+	$printf "%8s" "EARN/d"
+	$printf "%12s" "xRAC=1mag?"
+	$printf "%12s" "xRAC=1GRC?"
+
+	echo
+
+	numprojects=$(get_number_whitelisted_projects)
+	magperproject=$(echo "115000/${numprojects}" | bc -l)
+	get_explainmagnitude
+	for PROJECT in $(get_listprojects); do 
+		TOTAL_RAC=$(get_currentcontractaverage_rac $PROJECT)
+		if [[ $(grep $PROJECT /tmp/explainmagnitude) ]]; then
+			RAC=$(grep $PROJECT /tmp/explainmagnitude | awk '{ print $2 }') 
+			MAGNITUDE=$(grep $PROJECT /tmp/explainmagnitude | awk '{ print $3 }')
+			if [[ ! $MAGNITUDE == "0" ]]; then
+				RAC_SHARE_PCT=$(echo "$RAC/$TOTAL_RAC*100" | bc -l)
+				EARN=$(echo $MAGNITUDE*${currentmagunit} | bc -l)
+			else	
+				RAC_SHARE_PCT=0
+				EARN=0
+			fi
+		else
+			RAC=0
+			MAGNITUDE=0
+			RAC_SHARE_PCT=0
+			EARN=0
+		fi
+		if [[ ${TOTAL_RAC} -ne 0 ]]; then
+			xRAC1MAG=$(echo "$TOTAL_RAC/$magperproject" | bc -l)
+			xRAC1GRC=$(echo "$TOTAL_RAC/$magperproject/$currentmagunit" | bc -l)
+		else
+			TOTAL_RAC=0
+			xRAC1MAG=0
+			xRAC1GRC=0
+		fi
+
+		f_datetime
+		$printf "%-20s" "$PROJECT"
+		$printf "%10.1f" "$RAC"
+		$printf "%12s" "$TOTAL_RAC"
+		$printf "%16f" "$RAC_SHARE_PCT"
+		$printf "%7.1f" "$MAGNITUDE"
+		$printf "%8.1f" "$EARN"
+		$printf "%12.1f" "$xRAC1MAG"
+		$printf "%12.1f" "$xRAC1GRC"
+		echo
+        	unset xRAC1MAG
+        	unset xRAC1GRC
+        	unset RAC
+		unset TOTAL_RAC
+        	unset RAC_SHARE_PCT
+       		unset MAGNITUDE
+		unset EARN
+	done
+	f_datetime
+	echo
+}
+
+main_header
+list_general
+list_projects
