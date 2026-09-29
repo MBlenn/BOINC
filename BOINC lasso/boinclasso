@@ -1,4 +1,9 @@
 #!/usr/bin/bash
+# v20260929
+#   - new_algo now falls back to $XDG_RUNTIME_DIR (or /tmp) for its info files
+#     when not running as root, since /run requires root to create new files
+#   - fixed -b: CPUreq lookup still read the unsuffixed default info file,
+#     causing a bash arithmetic syntax error when a port was set
 # v20260928
 #   - added -b port to query a boinccmd GUI RPC instance on a non-default port (-n only)
 #   - added -o to use the other half of physical threads with -p (some CPUs/users prefer the second half)
@@ -188,13 +193,19 @@ new_algo() {
     threadsperL3=$(echo $(($threads/$l3Caches)))
     threadsPerCore=$(lscpu | awk '/^Thread\(s\) per core:/ { print $4 }')
 
+    if [[ $(id -u) -eq 0 ]]; then
+        infoDir=/run
+    else
+        infoDir=${XDG_RUNTIME_DIR:-/tmp}
+    fi
+
     boinccmdOpts=()
-    infoFile=/run/boinc_simple_gui_info
-    infoFileMini=/run/boinc_simple_gui_info.mini
+    infoFile="${infoDir}/boinc_simple_gui_info"
+    infoFileMini="${infoDir}/boinc_simple_gui_info.mini"
     if [[ -n $boincPort ]]; then
         boinccmdOpts=(--host "localhost:${boincPort}")
-        infoFile="/run/boinc_simple_gui_info_${boincPort}"
-        infoFileMini="/run/boinc_simple_gui_info_${boincPort}.mini"
+        infoFile="${infoDir}/boinc_simple_gui_info_${boincPort}"
+        infoFileMini="${infoDir}/boinc_simple_gui_info_${boincPort}.mini"
     fi
 
     create_simple_gui_info.mini() {
