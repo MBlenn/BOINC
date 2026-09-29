@@ -1,5 +1,8 @@
 #!/usr/bin/bash
 # v20260929
+#   - replaced lynx with curl in version() (lynx dependency no longer needed)
+#   - inlined create_simple_gui_info.mini, it was only ever called once right
+#     after being defined
 #   - new_algo now falls back to $XDG_RUNTIME_DIR (or /tmp) for its info files
 #     when not running as root, since /run requires root to create new files
 #   - fixed -b: CPUreq lookup still read the unsuffixed default info file,
@@ -178,7 +181,7 @@ update_script() {
 
 version() {
     localversion=$(awk '/^# v20/ { print $2 }' ${FILENAME} | head -1)
-    lastVersion=$(lynx -nomargins -dont_wrap_pre --dump https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso | awk '/^# v20/ { print $2 }' | head -1)
+    lastVersion=$(curl -fsSL https://raw.githubusercontent.com/MBlenn/BOINC/master/BOINC%20lasso/boinclasso | awk '/^# v20/ { print $2 }' | head -1)
     echo "Local version:    $localversion"
     echo "GitHub version:   $lastVersion"
     exit 0
@@ -208,16 +211,12 @@ new_algo() {
         infoFileMini="${infoDir}/boinc_simple_gui_info_${boincPort}.mini"
     fi
 
-    create_simple_gui_info.mini() {
-        boinccmd "${boinccmdOpts[@]}" --get_simple_gui_info > "$infoFile";
-        activeWUnames=$(awk -F": " '/WU name:/ { print $2 }' "$infoFile");
-        for WUname in $activeWUnames; do
-                printf "$WUname ";
-                grep -A 15 "WU name: ${WUname}" "$infoFile" | awk -F": | " '/resources|PID|active_task_state/ { print $5 }' | xargs ;
-        done > "$infoFileMini"
-    }
-
-    create_simple_gui_info.mini
+    boinccmd "${boinccmdOpts[@]}" --get_simple_gui_info > "$infoFile"
+    activeWUnames=$(awk -F": " '/WU name:/ { print $2 }' "$infoFile")
+    for WUname in $activeWUnames; do
+            printf "$WUname ";
+            grep -A 15 "WU name: ${WUname}" "$infoFile" | awk -F": | " '/resources|PID|active_task_state/ { print $5 }' | xargs ;
+    done > "$infoFileMini"
 
     # Array with number of available threads per L3:
     L3=0; 
